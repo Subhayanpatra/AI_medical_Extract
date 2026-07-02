@@ -1,0 +1,39 @@
+import json
+import pathlib
+import re
+
+
+NOTEBOOK = pathlib.Path(r"C:\Users\HP\Downloads\Trial Model.ipynb")
+SECRETS = pathlib.Path(r"C:\AI_extract\.streamlit\secrets.toml")
+
+
+def main() -> None:
+    notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
+    source = "\n".join(
+        "".join(cell.get("source", []))
+        for cell in notebook.get("cells", [])
+    )
+    ncbi_match = re.search(r"Entrez\.api_key\s*=\s*[\"']([^\"']+)[\"']", source)
+    gemini_match = re.search(r"genai\.configure\(\s*api_key\s*=\s*[\"']([^\"']+)[\"']", source)
+
+    if not ncbi_match and not gemini_match:
+        print("No API keys found")
+        return
+
+    SECRETS.parent.mkdir(exist_ok=True)
+    current = SECRETS.read_text(encoding="utf-8") if SECRETS.exists() else ""
+    lines = [
+        line
+        for line in current.splitlines()
+        if not line.startswith("NCBI_API_KEY") and not line.startswith("GEMINI_API_KEY")
+    ]
+    if ncbi_match:
+        lines.append(f'NCBI_API_KEY = "{ncbi_match.group(1)}"')
+    if gemini_match:
+        lines.append(f'GEMINI_API_KEY = "{gemini_match.group(1)}"')
+    SECRETS.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("Streamlit secrets written")
+
+
+if __name__ == "__main__":
+    main()
