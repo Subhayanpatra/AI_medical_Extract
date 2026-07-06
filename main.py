@@ -5,6 +5,7 @@ import os
 import pandas as pd
 import streamlit as st
 
+import agents.disease_normalization_agent
 import pubmed.metadata
 import pubmed.pmc_filter
 import pubmed.query_builder
@@ -55,40 +56,77 @@ if search:
     elif use_year_filter and int(start_year) > int(end_year):
         st.error("Start year must be less than or equal to end year.")
     else:
-        with st.spinner(f"Finding {paper_count} PMCID papers for {disease.strip()}..."):
+        normalized_disease = None
+        normalization_result = None
+        with st.spinner("Checking and normalizing the disease name..."):
             try:
-                importlib.reload(pubmed.query_builder)
-                importlib.reload(pubmed.search)
-                importlib.reload(pubmed.metadata)
-                importlib.reload(pubmed.pmc_filter)
-
-                query = pubmed.query_builder.build_query(
-                    disease.strip(),
-                    start_year=int(start_year) if start_year else None,
-                    end_year=int(end_year) if end_year else None,
+                importlib.reload(agents.disease_normalization_agent)
+                normalization_result = agents.disease_normalization_agent.normalize_disease(
+                    disease.strip()
                 )
-                papers = pubmed.pmc_filter.get_required_pmc_papers(
-                    disease=disease.strip(),
-                    required_papers=int(paper_count),
-                    start_year=int(start_year) if start_year else None,
-                    end_year=int(end_year) if end_year else None,
-                )
+                if normalization_result["is_valid_disease"]:
+                    normalized_disease = normalization_result["official_disease_name"]
+                else:
+                    st.error(
+                        f'"{disease.strip()}" was not recognized as a valid disease. '
+                        "Enter a disease name and try again."
+                    )
             except Exception as exc:
-                st.error(f"Search failed: {exc}")
-                papers = []
-                query = ""
+                st.error(f"Disease normalization failed: {exc}")
 
-        with st.expander("Debug search details"):
-            st.write(
-                {
-                    "working_directory": os.getcwd(),
-                    "main_file": __file__,
-                    "pmc_filter_file": inspect.getfile(pubmed.pmc_filter),
-                    "query": query,
-                    "requested": int(paper_count),
-                    "returned": len(papers),
-                }
+        if normalized_disease:
+            if normalization_result.get("normalization_warning"):
+                st.warning(
+                    "Gemini normalization is unavailable because GEMINI_API_KEY is invalid. "
+                    "A local disease-name fallback was used. Add a valid Google AI Studio "
+                    "API key to enable the AI agent."
+                )
+            st.info(
+                f"Searching for: {normalized_disease} "
+                f"(normalization confidence: {normalization_result['confidence']:.0%}, "
+                f"method: {normalization_result.get('normalization_method', 'Gemini')})"
             )
+
+        if normalized_disease:
+            with st.spinner(f"Finding {paper_count} PMCID papers for {normalized_disease}..."):
+                try:
+                    importlib.reload(pubmed.query_builder)
+                    importlib.reload(pubmed.search)
+                    importlib.reload(pubmed.metadata)
+                    importlib.reload(pubmed.pmc_filter)
+
+                    query = pubmed.query_builder.build_query(
+                        normalized_disease,
+                        start_year=int(start_year) if start_year else None,
+                        end_year=int(end_year) if end_year else None,
+                    )
+                    papers = pubmed.pmc_filter.get_required_pmc_papers(
+                        disease=normalized_disease,
+                        required_papers=int(paper_count),
+                        start_year=int(start_year) if start_year else None,
+                        end_year=int(end_year) if end_year else None,
+                    )
+                except Exception as exc:
+                    st.error(f"Search failed: {exc}")
+                    papers = []
+                    query = ""
+        else:
+            papers = []
+            query = ""
+
+        if normalized_disease:
+            with st.expander("Debug search details"):
+                st.write(
+                    {
+                        "working_directory": os.getcwd(),
+                        "main_file": __file__,
+                        "pmc_filter_file": inspect.getfile(pubmed.pmc_filter),
+                        "disease_normalization": normalization_result,
+                        "query": query,
+                        "requested": int(paper_count),
+                        "returned": len(papers),
+                    }
+                )
 
         if papers:
             df = pd.DataFrame(papers)
@@ -216,10 +254,10 @@ if search:
             st.download_button(
                 "Download CSV",
                 data=csv,
-                file_name=f"{disease.strip().replace(' ', '_')}_pmcid_papers.csv",
+                file_name=f"{normalized_disease.replace(' ', '_')}_pmcid_papers.csv",
                 mime="text/csv",
             )
-        else:
+        elif normalized_disease:
             st.warning("No PMCID papers found for this search.")
 else:
     st.info("Enter a disease name and paper count in the sidebar, then click Find papers.")

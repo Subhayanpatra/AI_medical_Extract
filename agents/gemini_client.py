@@ -1,7 +1,8 @@
 import json
 import re
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from config import GEMINI_API_KEY
 
@@ -9,18 +10,18 @@ from config import GEMINI_API_KEY
 MODEL_NAME = "gemini-2.5-flash"
 
 
-def generate_json(prompt: str) -> dict:
+def generate_json(prompt: str, model_name: str = MODEL_NAME) -> dict:
     if not GEMINI_API_KEY:
         raise RuntimeError("Missing GEMINI_API_KEY in .streamlit/secrets.toml")
 
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(MODEL_NAME)
-    response = model.generate_content(
-        prompt,
-        generation_config={
-            "temperature": 0,
-            "response_mime_type": "application/json",
-        },
+    client = genai.Client(api_key=GEMINI_API_KEY.strip())
+    response = client.models.generate_content(
+        model=model_name,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            temperature=0,
+            response_mime_type="application/json",
+        ),
     )
 
     text = response.text.strip()
