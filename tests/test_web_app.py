@@ -36,6 +36,11 @@ class WebApplicationTests(unittest.TestCase):
         self.assertIn('fetchJson("/api/search"', script.text)
         self.assertIn('fetchJson("/api/normalize"', script.text)
         self.assertIn("function renderDataSheet()", script.text)
+        self.assertIn(
+            'id="max-agent-papers" type="number" min="1" max="200" value="5"',
+            index.text,
+        )
+        self.assertIn("const runAgents = elements.runAgents.checked;", script.text)
 
     def test_health_endpoint(self):
         response = self.client.get("/api/health")
@@ -54,6 +59,31 @@ class WebApplicationTests(unittest.TestCase):
                 "use_year_filter": True,
                 "start_year": 2026,
                 "end_year": 2020,
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_ignores_invalid_agent_count_when_agents_are_off(self):
+        request = main.SearchRequest(
+            medical_query="diabetes",
+            normalized_query="diabetes mellitus",
+            query_confirmed=True,
+            run_agents=False,
+            max_agent_papers=0,
+        )
+
+        self.assertEqual(request.max_agent_papers, 5)
+
+    def test_rejects_invalid_agent_count_when_agents_are_on(self):
+        response = self.client.post(
+            "/api/search",
+            json={
+                "medical_query": "diabetes",
+                "normalized_query": "diabetes mellitus",
+                "query_confirmed": True,
+                "run_agents": True,
+                "max_agent_papers": 0,
             },
         )
 

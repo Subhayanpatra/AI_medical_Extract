@@ -56,7 +56,7 @@ class SearchRequest(BaseModel):
     start_year: int | None = Field(default=None, ge=1900, le=2100)
     end_year: int | None = Field(default=None, ge=1900, le=2100)
     run_agents: bool = False
-    max_agent_papers: int = Field(default=5, ge=1, le=200)
+    max_agent_papers: int = Field(default=5)
     slr_handling: Literal["include", "exclude"] = "include"
 
     @model_validator(mode="after")
@@ -65,6 +65,13 @@ class SearchRequest(BaseModel):
         self.normalized_query = " ".join(self.normalized_query.split())
         if not self.query_confirmed:
             raise ValueError("The normalized query must be confirmed before searching.")
+        if self.run_agents:
+            if not 1 <= self.max_agent_papers <= 200:
+                raise ValueError(
+                    "The number of papers to analyze must be between 1 and 200."
+                )
+        else:
+            self.max_agent_papers = 5
         if self.use_year_filter:
             if self.start_year is None or self.end_year is None:
                 raise ValueError("Both start year and end year are required.")

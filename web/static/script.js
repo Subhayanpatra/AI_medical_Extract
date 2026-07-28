@@ -183,10 +183,24 @@ async function fetchJson(url, options = {}) {
 
 function buildSearchPayload() {
     const paperCount = Number(elements.paperCount.value);
-    const maxAgentPapers = Number(elements.maxAgentPapers.value);
+    const runAgents = elements.runAgents.checked;
+    const maxAgentPapers = runAgents
+        ? Number(elements.maxAgentPapers.value)
+        : 5;
     const startYear = Number(elements.startYear.value);
     const endYear = Number(elements.endYear.value);
 
+    if (!Number.isInteger(paperCount) || paperCount < 1 || paperCount > 200) {
+        throw new Error("PMC papers must be between 1 and 200.");
+    }
+    if (
+        runAgents
+        && (!Number.isInteger(maxAgentPapers)
+            || maxAgentPapers < 1
+            || maxAgentPapers > 200)
+    ) {
+        throw new Error("Papers to analyze must be between 1 and 200.");
+    }
     if (elements.useYearFilter.checked && startYear > endYear) {
         throw new Error("Start year must be less than or equal to end year.");
     }
@@ -197,7 +211,7 @@ function buildSearchPayload() {
         use_year_filter: elements.useYearFilter.checked,
         start_year: elements.useYearFilter.checked ? startYear : null,
         end_year: elements.useYearFilter.checked ? endYear : null,
-        run_agents: elements.runAgents.checked,
+        run_agents: runAgents,
         max_agent_papers: maxAgentPapers,
         slr_handling: elements.slrHandling.value,
     };
