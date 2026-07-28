@@ -1,263 +1,366 @@
-import importlib
-import inspect
+from __future__ import annotations
+
+import io
+import json
+import math
 import os
+import re
+import threading
+import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Literal
 
 import pandas as pd
-import streamlit as st
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field, model_validator
 
-import agents.disease_normalization_agent
-import pubmed.metadata
-import pubmed.pmc_filter
-import pubmed.query_builder
-import pubmed.search
+from agents.paper_agent import process_paper
+from agents.query_normalization_agent import normalize_query
+from pubmed.pmc_filter import get_required_pmc_papers
+from pubmed.query_builder import build_query
 
 
-st.set_page_config(
-    page_title="PMCID Paper Finder",
-    layout="wide",
+BASE_DIR = Path(__file__).resolve().parent
+WEB_DIR = BASE_DIR / "web"
+STATIC_DIR = WEB_DIR / "static"
+MAX_WORKERS = max(1, int(os.getenv("AI_EXTRACT_MAX_WORKERS", "2")))
+
+app = FastAPI(
+    title="Medical Research AI Platform",
+    version="2.0.0",
+    docs_url="/api/docs",
+    redoc_url=None,
 )
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-st.title("PMCID Paper Finder")
+_executor = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="ai-extract")
+_jobs: dict[str, dict[str, Any]] = {}
+_jobs_lock = threading.Lock()
 
-with st.sidebar:
-    st.header("Search")
-    disease = st.text_input("Disease name", placeholder="diabetes")
-    paper_count = st.number_input(
-        "Number of PMCID papers",
-        min_value=1,
-        max_value=200,
-        value=30,
-        step=1,
+
+class SearchRequest(BaseModel):
+    medical_query: str = Field(min_length=1, max_length=5000)
+    normalized_query: str = Field(min_length=1, max_length=5000)
+    query_confirmed: bool
+    normalization_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    normalization_query_style: Literal["keyword_query", "detailed_query"] = (
+        "keyword_query"
     )
-    use_year_filter = st.checkbox("Filter by publication year")
-    run_agents = st.checkbox("Run AI extraction agents")
-    max_agent_papers = st.number_input(
-        "Papers to analyze with agents",
-        min_value=1,
-        max_value=200,
-        value=5,
-        step=1,
-        disabled=not run_agents,
-    )
+    paper_count: int = Field(default=30, ge=1, le=200)
+    use_year_filter: bool = False
+    start_year: int | None = Field(default=None, ge=1900, le=2100)
+    end_year: int | None = Field(default=None, ge=1900, le=2100)
+    run_agents: bool = False
+    max_agent_papers: int = Field(default=5, ge=1, le=200)
+    slr_handling: Literal["include", "exclude"] = "include"
 
-    start_year = None
-    end_year = None
-    if use_year_filter:
-        start_year = st.number_input("Start year", min_value=1900, max_value=2100, value=2020)
-        end_year = st.number_input("End year", min_value=1900, max_value=2100, value=2026)
-
-    search = st.button("Find papers", type="primary", use_container_width=True)
-
-st.caption("Searches PubMed and returns papers that have a PMCID code.")
-
-if search:
-    if not disease.strip():
-        st.error("Enter a disease name.")
-    elif use_year_filter and int(start_year) > int(end_year):
-        st.error("Start year must be less than or equal to end year.")
-    else:
-        normalized_disease = None
-        normalization_result = None
-        with st.spinner("Checking and normalizing the disease name..."):
-            try:
-                importlib.reload(agents.disease_normalization_agent)
-                normalization_result = agents.disease_normalization_agent.normalize_disease(
-                    disease.strip()
-                )
-                if normalization_result["is_valid_disease"]:
-                    normalized_disease = normalization_result["official_disease_name"]
-                else:
-                    st.error(
-                        f'"{disease.strip()}" was not recognized as a valid disease. '
-                        "Enter a disease name and try again."
-                    )
-            except Exception as exc:
-                st.error(f"Disease normalization failed: {exc}")
-
-        if normalized_disease:
-            if normalization_result.get("normalization_warning"):
-                st.warning(
-                    "Gemini normalization is unavailable because GEMINI_API_KEY is invalid. "
-                    "A local disease-name fallback was used. Add a valid Google AI Studio "
-                    "API key to enable the AI agent."
-                )
-            st.info(
-                f"Searching for: {normalized_disease} "
-                f"(normalization confidence: {normalization_result['confidence']:.0%}, "
-                f"method: {normalization_result.get('normalization_method', 'Gemini')})"
-            )
-
-        if normalized_disease:
-            with st.spinner(f"Finding {paper_count} PMCID papers for {normalized_disease}..."):
-                try:
-                    importlib.reload(pubmed.query_builder)
-                    importlib.reload(pubmed.search)
-                    importlib.reload(pubmed.metadata)
-                    importlib.reload(pubmed.pmc_filter)
-
-                    query = pubmed.query_builder.build_query(
-                        normalized_disease,
-                        start_year=int(start_year) if start_year else None,
-                        end_year=int(end_year) if end_year else None,
-                    )
-                    papers = pubmed.pmc_filter.get_required_pmc_papers(
-                        disease=normalized_disease,
-                        required_papers=int(paper_count),
-                        start_year=int(start_year) if start_year else None,
-                        end_year=int(end_year) if end_year else None,
-                    )
-                except Exception as exc:
-                    st.error(f"Search failed: {exc}")
-                    papers = []
-                    query = ""
+    @model_validator(mode="after")
+    def validate_years(self) -> "SearchRequest":
+        self.medical_query = " ".join(self.medical_query.split())
+        self.normalized_query = " ".join(self.normalized_query.split())
+        if not self.query_confirmed:
+            raise ValueError("The normalized query must be confirmed before searching.")
+        if self.use_year_filter:
+            if self.start_year is None or self.end_year is None:
+                raise ValueError("Both start year and end year are required.")
+            if self.start_year > self.end_year:
+                raise ValueError("Start year must be less than or equal to end year.")
         else:
-            papers = []
-            query = ""
+            self.start_year = None
+            self.end_year = None
+        return self
 
-        if normalized_disease:
-            with st.expander("Debug search details"):
-                st.write(
-                    {
-                        "working_directory": os.getcwd(),
-                        "main_file": __file__,
-                        "pmc_filter_file": inspect.getfile(pubmed.pmc_filter),
-                        "disease_normalization": normalization_result,
-                        "query": query,
-                        "requested": int(paper_count),
-                        "returned": len(papers),
-                    }
-                )
+
+class NormalizeRequest(BaseModel):
+    medical_query: str = Field(min_length=1, max_length=5000)
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _new_job(request: SearchRequest) -> str:
+    job_id = uuid.uuid4().hex
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "stage": "queued",
+            "progress": 0,
+            "message": "Search queued.",
+            "created_at": _now(),
+            "updated_at": _now(),
+            "request": request.model_dump(),
+            "result": None,
+            "error": "",
+        }
+    return job_id
+
+
+def _update_job(job_id: str, **updates: Any) -> None:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            return
+        job.update(updates)
+        job["updated_at"] = _now()
+
+
+def _job_snapshot(job_id: str) -> dict[str, Any] | None:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        return dict(job) if job else None
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return str(value)
+
+
+def _count_codes(papers: list[dict[str, Any]]) -> int:
+    fields = ("ICD_9_CM", "ICD_10_CM", "ICD_10_PCS", "CPT", "HCPCS", "NDC")
+    codes = set()
+    for paper in papers:
+        for field in fields:
+            value = str(paper.get(field, "") or "")
+            for code in value.split(";"):
+                code = code.strip()
+                if code:
+                    codes.add(f"{field}:{code}")
+    return len(codes)
+
+
+def _count_countries(papers: list[dict[str, Any]]) -> int:
+    countries = set()
+    for paper in papers:
+        for country in str(paper.get("Country", "") or "").split(";"):
+            country = country.strip()
+            if country:
+                countries.add(country.casefold())
+    return len(countries)
+
+
+def _run_search_job(job_id: str, request: SearchRequest) -> None:
+    try:
+        _update_job(
+            job_id,
+            status="running",
+            stage="searching",
+            progress=10,
+            message="Normalizing the medical research query…",
+        )
+        normalization = {
+            "input": request.medical_query,
+            "original_user_query": request.medical_query,
+            "normalized_query": request.normalized_query,
+            "is_valid_medical_query": True,
+            "confidence": request.normalization_confidence,
+            "query_style": request.normalization_query_style,
+            "query_confirmed": True,
+            "normalization_method": "User confirmed",
+        }
+        normalized_query = request.normalized_query
+        pubmed_query = build_query(
+            normalized_query,
+            start_year=request.start_year,
+            end_year=request.end_year,
+        )
+        _update_job(
+            job_id,
+            stage="searching",
+            progress=15,
+            message=f"Searching PubMed for {request.paper_count} PMC papers…",
+        )
+        papers = get_required_pmc_papers(
+            disease=normalized_query,
+            required_papers=request.paper_count,
+            start_year=request.start_year,
+            end_year=request.end_year,
+        )
 
         if papers:
-            df = pd.DataFrame(papers)
-            agent_view = None
-
-            if run_agents:
-                from agents.paper_agent import process_paper
-
-                agent_results = []
-                progress = st.progress(0)
-                status = st.empty()
-                papers_to_analyze = min(int(max_agent_papers), len(df))
-
-                for index, row in df.head(papers_to_analyze).iterrows():
-                    status.write(
-                        f"Running agents for {index + 1}/{papers_to_analyze}: {row['PMCID']}"
-                    )
-                    try:
-                        agent_results.append(process_paper(row["PMCID"]))
-                    except Exception as exc:
-                        agent_results.append({"Agent_Error": str(exc)})
-                    progress.progress((index + 1) / papers_to_analyze)
-
-                agent_df = pd.DataFrame(agent_results)
-                agent_view = pd.concat(
-                    [
-                        df.head(papers_to_analyze).reset_index(drop=True),
-                        agent_df.reset_index(drop=True),
-                    ],
-                    axis=1,
-                )
-                df = pd.concat(
-                    [
-                        df.reset_index(drop=True),
-                        agent_df.reindex(range(len(df))).reset_index(drop=True),
-                    ],
-                    axis=1,
-                )
-                status.write("Agent extraction complete.")
-
-                if agent_results:
-                    st.subheader("AI Extraction Preview")
-                    st.json(agent_results[0])
-
-            if len(df) == int(paper_count):
-                st.success(f"Found all {len(df)} requested PMCID paper(s).")
-            else:
-                st.warning(
-                    f"Requested {int(paper_count)} PMCID paper(s), but found {len(df)}. "
-                    "Try a broader disease name or remove year filters."
-                )
-
-            if agent_view is not None:
-                st.subheader(f"AI Agent Results ({len(agent_view)} paper)")
-                preferred_agent_columns = [
-                    "PMCID",
-                    "PMID",
-                    "Title",
-                    "Primary_Disease",
-                    "ICD_9_CM",
-                    "ICD_10_CM",
-                    "ICD_10_PCS",
-                    "CPT",
-                    "HCPCS",
-                    "NDC",
-                    "Method",
-                    "Analysis",
-                    "Outcome",
-                    "Agent_Error",
-                ]
-                visible_agent_columns = [
-                    column for column in preferred_agent_columns if column in agent_view.columns
-                ]
-                st.dataframe(
-                    agent_view[visible_agent_columns],
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-            st.subheader(f"PMCID Search Results ({len(df)} papers)")
-            base_columns = [
-                "PMCID",
-                "PMID",
-                "Title",
-                "Primary Disease",
-                "Major Secondary Diseases",
-                "Disease Confidence Score",
-                "Disease Validation Reason",
-                "Accepted",
-                "Rejection Reason",
-                "Journal",
-                "PublicationYear",
-                "Authors",
-                "DOI",
-                "Abstract",
-                "MeSH Terms",
-                "Keywords",
-                "Publication Types",
-                "Chemical List",
-                "PubMedURL",
-                "PMCURL",
-            ]
-            base_columns = [column for column in base_columns if column in df.columns]
-            agent_columns = [
-                column
-                for column in df.columns
-                if column not in base_columns
-            ]
-
-            if agent_columns:
-                st.subheader("AI Agent Results")
-                st.dataframe(
-                    df[base_columns + agent_columns],
-                    use_container_width=True,
-                    hide_index=True,
-                )
-            else:
-                st.dataframe(
-                    df[base_columns],
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "Download CSV",
-                data=csv,
-                file_name=f"{normalized_disease.replace(' ', '_')}_pmcid_papers.csv",
-                mime="text/csv",
+            papers_to_process = len(papers)
+            extended_agent_limit = (
+                min(request.max_agent_papers, papers_to_process)
+                if request.run_agents
+                else 0
             )
-        elif normalized_disease:
-            st.warning("No PMCID papers found for this search.")
-else:
-    st.info("Enter a disease name and paper count in the sidebar, then click Find papers.")
+            for index, paper in enumerate(papers):
+                run_extended_agents = index < extended_agent_limit
+                progress = 25 + round((index / max(1, papers_to_process)) * 65)
+                processing_label = (
+                    "Running advanced extraction from SLR through outcomes"
+                    if run_extended_agents
+                    else "Retrieving full text, supplements, and relevance"
+                )
+                _update_job(
+                    job_id,
+                    stage="extracting",
+                    progress=progress,
+                    message=(
+                        f"{processing_label} {index + 1}/{papers_to_process}: "
+                        f"{paper.get('PMCID', '')}"
+                    ),
+                )
+                try:
+                    agent_result = process_paper(
+                        str(paper.get("PMCID", "")),
+                        title=str(paper.get("Title", "")),
+                        query=str(normalization.get("original_user_query", "")),
+                        include_supplementary=True,
+                        run_extended_agents=run_extended_agents,
+                    )
+                except Exception as exc:
+                    agent_result = {"Agent_Error": str(exc)}
+                paper.update(agent_result)
+                if index + 1 < papers_to_process:
+                    time.sleep(1)
+
+            if request.slr_handling == "exclude":
+                papers = [
+                    paper for paper in papers
+                    if paper.get("Is_SLR") is not True
+                ]
+
+        safe_papers = [_json_safe(paper) for paper in papers]
+        result = {
+            "normalization": _json_safe(normalization),
+            "pubmed_query": pubmed_query,
+            "requested": request.paper_count,
+            "returned": len(safe_papers),
+            "papers": safe_papers,
+            "metrics": {
+                "total_papers": len(safe_papers),
+                "pmc_articles": sum(bool(paper.get("PMCID")) for paper in safe_papers),
+                "countries": _count_countries(safe_papers),
+                "medical_codes": _count_codes(safe_papers),
+                "relevant_papers": sum(
+                    paper.get("Relevant") is True for paper in safe_papers
+                ),
+            },
+        }
+        _update_job(
+            job_id,
+            status="complete",
+            stage="complete",
+            progress=100,
+            message=f"Completed. Found {len(safe_papers)} PMC papers.",
+            result=result,
+        )
+    except Exception as exc:
+        _update_job(
+            job_id,
+            status="failed",
+            stage="failed",
+            progress=100,
+            message="The search could not be completed.",
+            error=str(exc),
+        )
+
+
+def _csv_cell(value: Any) -> Any:
+    if isinstance(value, (dict, list, tuple, set)):
+        value = json.dumps(_json_safe(value), ensure_ascii=False)
+    if value is None:
+        return ""
+    if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
+        return f"'{value}"
+    return value
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    return FileResponse(WEB_DIR / "index.html")
+
+
+@app.get("/api/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.post("/api/search", status_code=202)
+def create_search(request: SearchRequest) -> dict[str, str]:
+    job_id = _new_job(request)
+    _executor.submit(_run_search_job, job_id, request)
+    return {"job_id": job_id, "status": "queued"}
+
+
+@app.post("/api/normalize")
+def normalize_search_query(request: NormalizeRequest) -> dict[str, Any]:
+    normalization = normalize_query(request.medical_query)
+    if normalization.get("normalization_method") == "Error":
+        raise HTTPException(
+            status_code=502,
+            detail=f"Query normalization failed: {normalization.get('error', 'Unknown error')}",
+        )
+    if not normalization.get("is_valid_medical_query"):
+        raise HTTPException(
+            status_code=422,
+            detail=f'"{request.medical_query}" was not recognized as a valid medical query.',
+        )
+    return _json_safe(normalization)
+
+
+@app.get("/api/jobs/{job_id}")
+def get_job(job_id: str) -> dict[str, Any]:
+    job = _job_snapshot(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Search job was not found.")
+    return job
+
+
+@app.get("/api/jobs/{job_id}/download")
+def download_results(job_id: str) -> StreamingResponse:
+    job = _job_snapshot(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Search job was not found.")
+    if job.get("status") != "complete" or not job.get("result"):
+        raise HTTPException(status_code=409, detail="Search results are not ready.")
+
+    papers = job["result"].get("papers", [])
+    dataframe = pd.DataFrame(
+        [{key: _csv_cell(value) for key, value in paper.items()} for paper in papers]
+    )
+    buffer = io.StringIO()
+    dataframe.to_csv(buffer, index=False)
+    content = buffer.getvalue().encode("utf-8-sig")
+    query = job["result"]["normalization"].get("normalized_query", "pmc_papers")
+    filename = re.sub(r"[^A-Za-z0-9._-]+", "_", str(query)).strip("_")[:80]
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename or "pmc_papers"}.csv"'
+    }
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="text/csv; charset=utf-8",
+        headers=headers,
+    )
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "main:app",
+        host=os.getenv("AI_EXTRACT_HOST", "127.0.0.1"),
+        port=int(os.getenv("AI_EXTRACT_PORT", "8000")),
+        reload=False,
+    )

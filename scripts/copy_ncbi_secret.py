@@ -4,7 +4,7 @@ import re
 
 
 NOTEBOOK = pathlib.Path(r"C:\Users\HP\Downloads\Trial Model.ipynb")
-SECRETS = pathlib.Path(r"C:\AI_extract\.streamlit\secrets.toml")
+SECRETS = pathlib.Path(r"C:\AI_extract\.env")
 
 
 def main() -> None:
@@ -25,14 +25,14 @@ def main() -> None:
     lines = [
         line
         for line in current.splitlines()
-        if not line.startswith("NCBI_API_KEY") and not line.startswith("GEMINI_API_KEY")
+        if not line.startswith("NCBI_API_KEY=") and not line.startswith("GEMINI_API_KEY=")
     ]
     if ncbi_match:
-        lines.append(f'NCBI_API_KEY = "{ncbi_match.group(1)}"')
+        lines.append(f"NCBI_API_KEY={ncbi_match.group(1)}")
     if gemini_match:
-        lines.append(f'GEMINI_API_KEY = "{gemini_match.group(1)}"')
+        lines.append(f"GEMINI_API_KEY={gemini_match.group(1)}")
     SECRETS.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print("Streamlit secrets written")
+    print("Environment file written")
 
 
 if __name__ == "__main__":

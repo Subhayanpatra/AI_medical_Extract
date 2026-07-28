@@ -1,3 +1,5 @@
+import re
+
 from Bio import Entrez
 from config import EMAIL, NCBI_API_KEY
 
@@ -38,12 +40,13 @@ def parse_articles(articles) -> list[dict]:
         abstract = _extract_abstract(article_data)
         journal = str(article_data.get("Journal", {}).get("Title", ""))
         publication_year = _extract_year(article_data)
-        authors = _extract_authors(article_data)
+        authors, affiliations = _extract_authors_and_affiliations(article_data)
         doi, pmcid = _extract_article_ids(pubmed_data)
         mesh_terms = _extract_mesh_terms(citation)
         keywords = _extract_keywords(citation)
         publication_types = _extract_publication_types(article_data)
         chemical_list = _extract_chemical_list(citation)
+        languages = [str(language) for language in article_data.get("Language", [])]
 
         records.append(
             {
@@ -53,7 +56,9 @@ def parse_articles(articles) -> list[dict]:
                 "Abstract": abstract,
                 "Journal": journal,
                 "PublicationYear": publication_year,
-                "Authors": ", ".join(authors),
+                "Authors": "; ".join(authors),
+                "Affiliations": " | ".join(affiliations),
+                "Language": "; ".join(languages),
                 "DOI": doi,
                 "MeSH Terms": "; ".join(mesh_terms),
                 "Keywords": "; ".join(keywords),
@@ -61,6 +66,7 @@ def parse_articles(articles) -> list[dict]:
                 "Chemical List": "; ".join(chemical_list),
                 "PubMedURL": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else "",
                 "PMCURL": f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/" if pmcid else "",
+                "Status": "PMCID found" if pmcid else "No PMCID found",
             }
         )
 
@@ -79,6 +85,7 @@ def attach_pmcids_from_links(records: list[dict], pmid_to_pmcid: dict[str, str])
         if linked_pmcid and not item.get("PMCID"):
             item["PMCID"] = linked_pmcid
             item["PMCURL"] = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{linked_pmcid}/"
+            item["Status"] = "PMCID found"
 
         updated.append(item)
 
@@ -106,6 +113,8 @@ def parse_pmc_summaries(summaries) -> list[dict]:
                 "Journal": str(item.get("FullJournalName", "") or item.get("Source", "")),
                 "PublicationYear": pub_date[:4],
                 "Authors": ", ".join(authors),
+                "Affiliations": "",
+                "Language": "",
                 "DOI": doi,
                 "MeSH Terms": "",
                 "Keywords": "",
@@ -113,6 +122,7 @@ def parse_pmc_summaries(summaries) -> list[dict]:
                 "Chemical List": "",
                 "PubMedURL": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else "",
                 "PMCURL": f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/" if pmcid else "",
+                "Status": "PMCID found" if pmcid else "No PMCID found",
             }
         )
 
@@ -149,19 +159,35 @@ def _extract_year(article_data) -> str:
     if "Year" in pub_date:
         return str(pub_date["Year"])
     if "MedlineDate" in pub_date:
-        return str(pub_date["MedlineDate"])[:4]
+        year_match = re.search(r"\d{4}", str(pub_date["MedlineDate"]))
+        return year_match.group(0) if year_match else ""
     return ""
 
 
-def _extract_authors(article_data) -> list[str]:
+def _extract_authors_and_affiliations(article_data) -> tuple[list[str], list[str]]:
     authors = []
+    affiliations = []
     for author in article_data.get("AuthorList", []):
+        collective_name = str(author.get("CollectiveName", "")).strip()
         last = author.get("LastName", "")
         first = author.get("ForeName", "")
-        name = f"{first} {last}".strip()
+        name = collective_name or f"{first} {last}".strip()
         if name:
             authors.append(name)
-    return authors
+
+        for affiliation_info in author.get("AffiliationInfo", []):
+            affiliation = str(affiliation_info.get("Affiliation", "")).strip()
+            if affiliation:
+                affiliations.append(affiliation)
+
+    unique_affiliations = []
+    seen = set()
+    for affiliation in affiliations:
+        key = affiliation.casefold()
+        if key not in seen:
+            unique_affiliations.append(affiliation)
+            seen.add(key)
+    return authors, unique_affiliations
 
 
 def _extract_abstract(article_data) -> str:

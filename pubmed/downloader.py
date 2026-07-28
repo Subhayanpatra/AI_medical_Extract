@@ -1,20 +1,31 @@
-import requests
-from bs4 import BeautifulSoup
+from Bio import Entrez
+
+from config import EMAIL, NCBI_API_KEY
 
 
-def get_bioc_xml(pmcid: str):
-    """Download PMC Open Access BioC XML for a PMCID."""
-    clean_pmcid = str(pmcid).replace("PMC", "").strip()
+Entrez.email = EMAIL
+if NCBI_API_KEY:
+    Entrez.api_key = NCBI_API_KEY
+
+
+def get_pmc_xml(pmcid: str):
+    """Download real PMC XML using Entrez efetch."""
+    clean_pmcid = str(pmcid).strip()
     if not clean_pmcid:
         return None
 
-    url = (
-        "https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/"
-        f"pmcoa.cgi/BioC_xml/PMC{clean_pmcid}/unicode"
-    )
-    response = requests.get(url, timeout=30)
+    if not clean_pmcid.startswith("PMC"):
+        clean_pmcid = f"PMC{clean_pmcid}"
 
-    if response.status_code != 200 or "<collection>" not in response.text:
+    try:
+        handle = Entrez.efetch(
+            db="pmc",
+            id=clean_pmcid,
+            rettype="full",
+            retmode="xml",
+        )
+        xml_data = handle.read()
+        handle.close()
+        return xml_data
+    except Exception:
         return None
-
-    return BeautifulSoup(response.text, "xml")

@@ -7,7 +7,6 @@ from .metadata import (
     parse_articles,
     parse_pmc_summaries,
 )
-from agents.validator_agent import validate_disease
 from Bio import Entrez
 from config import EMAIL, NCBI_API_KEY
 import time
@@ -78,7 +77,7 @@ def get_required_pmc_papers(
         end_year=None,
         max_batches=20,
 ):
-    """Return accepted PMCID papers after disease validation."""
+    """Return PMCID papers matching the PubMed search query."""
 
     collected = []
     retstart = 0
@@ -104,14 +103,8 @@ def get_required_pmc_papers(
 
         for article in parsed_articles:
             pmcid = article.get("PMCID", "")
-            validation = validate_disease(article, disease)
-            article.update(validation)
 
-            if (
-                    pmcid
-                    and pmcid not in seen_pmcids
-                    and validation.get("Accepted") == "Yes"
-            ):
+            if pmcid and pmcid not in seen_pmcids:
                 collected.append(article)
                 seen_pmcids.add(pmcid)
 
@@ -191,14 +184,8 @@ def _get_required_papers_from_pmc(
 
         for article in parsed_records:
             pmcid = article.get("PMCID", "")
-            validation = validate_disease(article, disease)
-            article.update(validation)
 
-            if (
-                    pmcid
-                    and pmcid not in seen_pmcids
-                    and validation.get("Accepted") == "Yes"
-            ):
+            if pmcid and pmcid not in seen_pmcids:
                 collected.append(article)
                 seen_pmcids.add(pmcid)
 
