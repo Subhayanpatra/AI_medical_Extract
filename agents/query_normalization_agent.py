@@ -1,11 +1,11 @@
-"""Normalize a user's biomedical search query before PubMed retrieval."""
+"""Normalize a user's health-research query before PubMed retrieval."""
 
 from __future__ import annotations
 
 from .gemini_client import generate_json
 
 
-PROMPT = """You are a Clinical and Medical Query Normalization Agent for biomedical literature retrieval, PubMed search, evidence synthesis, Real-World Evidence (RWE), and Health Economics and Outcomes Research (HEOR).
+PROMPT = """You are a Clinical and Medical Query Normalization Agent for medical, clinical, healthcare, and life-sciences research literature retrieval, PubMed search, evidence synthesis, Real-World Evidence (RWE), and Health Economics and Outcomes Research (HEOR).
 
 Your task is to normalize a user's medical or clinical search query before it is used to build a PubMed search.
 
@@ -25,7 +25,8 @@ Your normalized query is intended primarily for literature retrieval.
 
 DOMAIN SCOPE
 
-The query may relate to any medical, clinical, biomedical, healthcare, pharmaceutical, or life sciences topic, including but not limited to:
+The query may relate to any medical, clinical, healthcare, pharmaceutical, or
+life-sciences research topic, including but not limited to:
 
 clinical research
 clinical trials
@@ -223,7 +224,8 @@ normalized_query that preserves the other concepts in the input.
 MEDICAL TERMINOLOGY NORMALIZATION
 
 Prefer recognized medical and healthcare terminology consistent with common
-biomedical vocabularies and naming conventions, including MeSH, UMLS, SNOMED
+medical, clinical, healthcare, and life-sciences vocabularies and naming
+conventions, including MeSH, UMLS, SNOMED
 CT, ICD, MedDRA, RxNorm, WHO Drug Dictionary, HGNC, and NCBI terminology.
 
 Normalize incorrect or non-standard terminology only when the intended
@@ -365,7 +367,9 @@ Clinformatics claims data
 
 INVALID QUERY RULES
 
-Return INVALID_MEDICAL_TERM only when the input has no meaningful medical, clinical, biomedical, healthcare, pharmaceutical, life sciences, RWE, HEOR, outcome, treatment, disease, or research concept.
+Return INVALID_MEDICAL_TERM only when the input has no meaningful medical,
+clinical, healthcare, pharmaceutical, life-sciences, RWE, HEOR, outcome,
+treatment, disease, or research concept.
 
 Examples of invalid queries:
 
@@ -374,7 +378,7 @@ iphone charger
 weather today
 
 Do not mark a query invalid merely because it is short. Cancer, survival,
-mortality, costs diabetes, and RWE oncology are potentially valid biomedical
+mortality, costs diabetes, and RWE oncology are potentially valid health-research
 queries.
 
 Return only valid JSON.
@@ -413,10 +417,7 @@ def normalize_query(user_input: str) -> dict:
         return _invalid_result("")
 
     try:
-        raw = generate_json(
-            PROMPT.format(user_input=repr(cleaned_input)),
-            model_name="gemini-2.5-flash",
-        )
+        raw = generate_json(PROMPT.format(user_input=repr(cleaned_input)))
     except Exception as exc:
         return {
             "input": cleaned_input,

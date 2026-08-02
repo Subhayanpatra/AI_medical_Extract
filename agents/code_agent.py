@@ -15,14 +15,15 @@ EMPTY_CODE_RESULT = {
 
 
 CODE_EXTRACTION_PROMPT = """
-You are an expert biomedical information extraction and medical coding
-specialist.
+You are an expert information-extraction and medical-coding specialist for
+medical, clinical, healthcare, and life-sciences research literature.
 
 Your task is to extract ONLY explicitly written medical codes from a
-biomedical research article with maximum precision and zero hallucination.
+medical, clinical, healthcare, or life-sciences research article with maximum
+precision and zero hallucination.
 
 Read all available article content, including title, abstract, introduction,
-methods, results, discussion, conclusion, full text, table text, table
+methods, results, discussion, conclusion, structured article sections, table text, table
 captions, figure text, figure captions, appendices, and supplementary text.
 
 PRIMARY OBJECTIVE
@@ -135,8 +136,8 @@ ARTICLE CONTENT
 TITLE:
 __TITLE__
 
-FULL TEXT:
-__FULL_TEXT__
+SECTIONS:
+__SECTIONS__
 
 TABLES:
 __TABLES__
@@ -224,26 +225,26 @@ def format_code_values(values: Any) -> str:
 
 def code_extraction_agent(
     title: Any,
-    full_text: Any,
+    sections: Any,
     tables: Any = "",
     figures: Any = "",
     supplementary_content: Any = "",
 ) -> dict:
     title_text = content_to_text(title)
-    full_text_value = content_to_text(full_text)
+    sections_text = content_to_text(sections)
     tables_text = content_to_text(tables)
     figures_text = content_to_text(figures)
     supplementary_text = content_to_text(supplementary_content)
 
     if not " ".join(
-        [full_text_value, tables_text, figures_text, supplementary_text]
+        [sections_text, tables_text, figures_text, supplementary_text]
     ).strip():
         return {key: "" for key in EMPTY_CODE_RESULT}
 
     prompt = (
         CODE_EXTRACTION_PROMPT
         .replace("__TITLE__", title_text)
-        .replace("__FULL_TEXT__", full_text_value)
+        .replace("__SECTIONS__", sections_text)
         .replace("__TABLES__", tables_text)
         .replace("__FIGURES__", figures_text)
         .replace("__SUPPLEMENTARY_CONTENT__", supplementary_text)

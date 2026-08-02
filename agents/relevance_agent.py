@@ -4,9 +4,11 @@ from .gemini_client import generate_json
 
 
 RELEVANCE_PROMPT = """
-You are a biomedical literature Full-Text Relevance Agent.
+You are a Section-Based Relevance Agent for medical, clinical, healthcare, and
+life-sciences research literature.
 
-Your task is to determine whether a biomedical research paper is relevant to the user's clinical research query.
+Your task is to determine whether a medical, clinical, healthcare, or
+life-sciences research paper is relevant to the user's clinical research query.
 
 Evaluate relevance using the complete research meaning of the query.
 
@@ -27,7 +29,7 @@ Consider whether the paper meaningfully discusses the important concepts in the 
 
 Rules:
 
-1. Read the paper title and full text.
+1. Read the paper title and all supplied article sections.
 2. Compare the paper with the corrected user query.
 3. A paper is relevant when its main topic, population, methods, treatment, outcome, or research objective meaningfully matches the query.
 4. A paper is not relevant when the query concepts appear only incidentally, in references, background discussion, or unrelated sections.
@@ -52,21 +54,29 @@ __QUERY__
 Paper title:
 __TITLE__
 
-Full text:
-__FULL_TEXT__
+ARTICLE SECTIONS:
+__SECTIONS__
 """
 
 
 def _text(value: Any) -> str:
     if value is None:
         return ""
+    if isinstance(value, dict):
+        return "\n".join(
+            f"{key}: {_text(item)}"
+            for key, item in value.items()
+            if _text(item)
+        )
+    if isinstance(value, (list, tuple, set)):
+        return "\n".join(_text(item) for item in value if _text(item))
     return str(value).strip()
 
 
-def relevance_agent(query: Any, title: Any, full_text: Any, max_characters: int = 60000) -> dict:
+def relevance_agent(query: Any, title: Any, sections: Any, max_characters: int = 60000) -> dict:
     query_text = _text(query)
     title_text = _text(title)
-    full_text_value = _text(full_text)
+    sections_text = _text(sections)
 
     if not query_text:
         return {
@@ -75,18 +85,18 @@ def relevance_agent(query: Any, title: Any, full_text: Any, max_characters: int 
             "Relevance_Reason": "The corrected query is missing.",
         }
 
-    if not full_text_value or len(full_text_value) < 200:
+    if not sections_text or len(sections_text) < 200:
         return {
             "Relevant": False,
             "Relevance_Score": 0.0,
-            "Relevance_Reason": "Full text is missing or too short.",
+            "Relevance_Reason": "Article sections are missing or too short.",
         }
 
     prompt = (
         RELEVANCE_PROMPT
         .replace("__QUERY__", query_text)
         .replace("__TITLE__", title_text)
-        .replace("__FULL_TEXT__", full_text_value[:max_characters])
+        .replace("__SECTIONS__", sections_text[:max_characters])
     )
 
     try:

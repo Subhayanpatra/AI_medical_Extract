@@ -4,22 +4,23 @@ from .gemini_client import generate_json
 
 
 OUTCOME_COUNTRY_PROMPT = """
-You are an expert biomedical research outcome and study-setting extraction
-agent.
+You are an expert outcome and study-setting extraction agent for medical,
+clinical, healthcare, and life-sciences research literature.
 
 Your task has TWO steps.
 
 STEP 1 - Extract the Primary Outcome
 
-Identify the PRIMARY OUTCOME or main finding explicitly reported by the authors in the biomedical research article.
+Identify the PRIMARY OUTCOME or main finding explicitly reported by the authors
+in the medical, clinical, healthcare, or life-sciences research article.
 
 The primary outcome is the central result, effect, or conclusion of the study.
 It is not merely the name of an endpoint.
 
 Use only the provided content. Do not use external knowledge.
 
-Read all available article content, including full text, abstract, methods,
-results, discussion, conclusion, tables, table titles, table captions, table
+Read all available article content, including structured abstract, methods,
+results, discussion, conclusion, and other sections, plus tables, table titles, table captions, table
 footnotes, figures, figure text, figure captions, appendices, and
 supplementary content.
 
@@ -130,8 +131,8 @@ Return exactly this JSON structure:
 
 ARTICLE CONTENT
 
-FULL TEXT:
-__FULL_TEXT__
+SECTIONS:
+__SECTIONS__
 
 TABLES:
 __TABLES__
@@ -178,24 +179,24 @@ def _format_country(countries: Any) -> str:
 
 
 def outcome_agent(
-    full_text: Any,
+    sections: Any,
     tables: Any = "",
     figures: Any = "",
     supplementary_content: Any = "",
 ) -> dict:
-    full_text_value = _content_to_text(full_text)
+    sections_text = _content_to_text(sections)
     tables_text = _content_to_text(tables)
     figures_text = _content_to_text(figures)
     supplementary_text = _content_to_text(supplementary_content)
 
     if not " ".join(
-        [full_text_value, tables_text, figures_text, supplementary_text]
+        [sections_text, tables_text, figures_text, supplementary_text]
     ).strip():
         return {"Outcome": "Not explicitly stated", "Country": ""}
 
     prompt = (
         OUTCOME_COUNTRY_PROMPT
-        .replace("__FULL_TEXT__", full_text_value)
+        .replace("__SECTIONS__", sections_text)
         .replace("__TABLES__", tables_text)
         .replace("__FIGURES__", figures_text)
         .replace("__SUPPLEMENTARY_CONTENT__", supplementary_text)

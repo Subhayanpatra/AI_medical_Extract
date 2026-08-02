@@ -2,7 +2,9 @@ import unittest
 from unittest.mock import patch
 
 from agents.analysis_agent import ANALYSIS_PROMPT
+from agents.query_evidence_agent import QUERY_EVIDENCE_PROMPT
 from agents.code_agent import CODE_EXTRACTION_PROMPT, _normalize_code_result
+from agents.gemini_client import MODEL_NAME
 from agents.outcome_agent import OUTCOME_COUNTRY_PROMPT
 from agents.query_normalization_agent import PROMPT, normalize_query
 from agents.slr_agent import SLR_PROMPT, slr_agent
@@ -10,8 +12,11 @@ from pubmed.metadata import _extract_authors_and_affiliations
 
 
 class NotebookUpdateTests(unittest.TestCase):
+    def test_uses_current_gemini_flash_lite(self):
+        self.assertEqual(MODEL_NAME, "gemini-3.5-flash-lite")
+
     @patch("agents.query_normalization_agent.generate_json")
-    def test_query_normalization_uses_flash_and_accepts_string_boolean(self, generate_json):
+    def test_query_normalization_uses_shared_model_and_accepts_string_boolean(self, generate_json):
         generate_json.return_value = {
             "original_user_query": "non-small cell lung cancer survival",
             "normalized_query": "non-small cell lung cancer AND survival",
@@ -24,10 +29,7 @@ class NotebookUpdateTests(unittest.TestCase):
 
         self.assertTrue(result["is_valid_medical_query"])
         self.assertEqual(result["query_style"], "keyword_query")
-        self.assertEqual(
-            generate_json.call_args.kwargs["model_name"],
-            "gemini-2.5-flash",
-        )
+        self.assertNotIn("model_name", generate_json.call_args.kwargs)
 
     @patch("agents.query_normalization_agent.generate_json")
     def test_query_api_failure_is_not_reported_as_invalid_query(self, generate_json):
@@ -121,7 +123,22 @@ class NotebookUpdateTests(unittest.TestCase):
 
     def test_analysis_and_outcome_prompts_include_expanded_notebook_rules(self):
         self.assertIn("Interrupted Time-Series Analysis", ANALYSIS_PROMPT)
+        self.assertIn("numerical evidence is required", ANALYSIS_PROMPT)
+        self.assertIn("analysed sample size or number of events", ANALYSIS_PROMPT)
+        self.assertIn("Distinguish adjusted from unadjusted estimates", ANALYSIS_PROMPT)
+        self.assertIn("self-contained, plain-language explanation", ANALYSIS_PROMPT)
+        self.assertIn("Numerical Results", QUERY_EVIDENCE_PROMPT)
+        self.assertIn("sample sizes and numbers of events", QUERY_EVIDENCE_PROMPT)
+        self.assertIn("A statistically non-significant result", QUERY_EVIDENCE_PROMPT)
+        self.assertIn("which part of the user's query", QUERY_EVIDENCE_PROMPT)
         self.assertIn("Generalized Additive Model", ANALYSIS_PROMPT)
+        self.assertIn("Do not limit the extraction to statistical", ANALYSIS_PROMPT)
+        self.assertIn("Predictive modelling and validation methods", ANALYSIS_PROMPT)
+        self.assertIn("Qualitative, text, and mixed-methods analysis", ANALYSIS_PROMPT)
+        self.assertIn("Mathematical, simulation, and algorithmic methods", ANALYSIS_PROMPT)
+        self.assertIn("all analysis methods explicitly stated", ANALYSIS_PROMPT)
+        self.assertIn('"Analyst result"', ANALYSIS_PROMPT)
+        self.assertIn("Do not guess which method produced", ANALYSIS_PROMPT)
         self.assertIn("Republic of Korea -> South Korea", OUTCOME_COUNTRY_PROMPT)
         self.assertIn("Median overall survival was 18.4", OUTCOME_COUNTRY_PROMPT)
 
@@ -132,7 +149,7 @@ class NotebookUpdateTests(unittest.TestCase):
             "Study_Design": "Systematic Review and Meta-analysis",
         }
 
-        result = slr_agent("Review title", {"Methods": "PRISMA"}, "x" * 500)
+        result = slr_agent("Review title", {"Methods": "PRISMA"})
 
         self.assertEqual(
             result,

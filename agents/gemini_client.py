@@ -8,7 +8,7 @@ from google.genai import types
 from config import GEMINI_API_KEY
 
 
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3.5-flash-lite"
 RETRYABLE_ERROR_MARKERS = (
     "503",
     "UNAVAILABLE",
@@ -32,7 +32,6 @@ def generate_json(prompt: str, model_name: str = MODEL_NAME, max_retries: int = 
                 model=model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    temperature=0,
                     response_mime_type="application/json",
                 ),
             )

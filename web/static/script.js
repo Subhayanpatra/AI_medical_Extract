@@ -101,6 +101,8 @@ const preferredSheetColumns = [
     "HCPCS",
     "NDC",
     "Analysis",
+    "Analyst result",
+    "Query Supporting Evidence",
     "Outcome",
     "Country",
     "Supplementary_Status",
@@ -113,6 +115,7 @@ const preferredSheetColumns = [
     "Agent_Error",
     "Code_Agent_Error",
     "Analysis_Agent_Error",
+    "Query_Evidence_Agent_Error",
     "Outcome_Agent_Error",
 ];
 
@@ -466,7 +469,9 @@ function renderResult(result, jobId) {
     metrics.codes.textContent = String(resultMetrics.medical_codes || 0);
 
     elements.resultSummary.textContent =
-        `Found ${result.returned} of ${result.requested} requested PMC papers.`;
+        `Found ${result.returned} of ${result.requested} requested relevant PMC papers ` +
+        `after assessing ${result.candidates_assessed || 0} candidates ` +
+        `(${result.not_relevant || 0} not relevant, ${result.excluded_slr || 0} SLR excluded).`;
     elements.resultsBody.replaceChildren(
         ...(activePapers.length
             ? activePapers.map(paperRow)
@@ -669,6 +674,8 @@ function openPaper(index) {
         detailSection("Outcome", paper.Outcome),
         detailSection("Relevance reason", paper.Relevance_Reason),
         detailSection("Analysis methods", paper.Analysis),
+        detailSection("Analysis results", paper["Analyst result"]),
+        detailSection("Query supporting evidence", paper["Query Supporting Evidence"]),
         detailSection(
             "Medical codes",
             {
@@ -691,7 +698,7 @@ function openPaper(index) {
         detailSection("Tables", paper.Tables, true),
         detailSection("Figures", paper.Figures, true),
         detailSection("Supplementary content", paper.Supplementary_Content, true),
-        detailSection("Processing error", paper.Agent_Error || paper.Code_Agent_Error || paper.Analysis_Agent_Error || paper.Outcome_Agent_Error),
+        detailSection("Processing error", paper.Agent_Error || paper.Code_Agent_Error || paper.Analysis_Agent_Error || paper.Query_Evidence_Agent_Error || paper.Outcome_Agent_Error),
     ].filter(Boolean);
     elements.dialogBody.append(...sections);
     elements.dialog.showModal();

@@ -91,6 +91,85 @@ class WebApplicationTests(unittest.TestCase):
 
     @patch("main.process_paper")
     @patch("main.get_required_pmc_papers")
+    def test_replaces_irrelevant_candidates_until_requested_count_is_reached(
+        self,
+        get_required_pmc_papers,
+        process_paper,
+    ):
+        get_required_pmc_papers.return_value = [
+            {"PMCID": "PMC-NO", "Title": "Unrelated"},
+            {"PMCID": "PMC-YES-1", "Title": "Relevant one"},
+            {"PMCID": "PMC-YES-2", "Title": "Relevant two"},
+        ]
+        process_paper.side_effect = [
+            {"Relevant": False, "Relevance_Score": 0.1},
+            {"Relevant": True, "Relevance_Score": 0.9},
+            {"Relevant": True, "Relevance_Score": 0.95},
+        ]
+        request = main.SearchRequest(
+            medical_query="diabetes",
+            normalized_query="diabetes mellitus",
+            query_confirmed=True,
+            paper_count=2,
+            run_agents=False,
+        )
+        job_id = main._new_job(request)
+
+        main._run_search_job(job_id, request)
+        result = main._job_snapshot(job_id)["result"]
+
+        self.assertEqual(result["returned"], 2)
+        self.assertEqual(result["candidates_assessed"], 3)
+        self.assertEqual(result["not_relevant"], 1)
+        self.assertEqual(
+            [paper["PMCID"] for paper in result["papers"]],
+            ["PMC-YES-1", "PMC-YES-2"],
+        )
+        self.assertEqual(
+            get_required_pmc_papers.call_args.kwargs["required_papers"],
+            10,
+        )
+
+    @patch("main.process_paper")
+    @patch("main.get_required_pmc_papers")
+    def test_replaces_excluded_slr_until_requested_count_is_reached(
+        self,
+        get_required_pmc_papers,
+        process_paper,
+    ):
+        get_required_pmc_papers.return_value = [
+            {"PMCID": "PMC-SLR", "Title": "Systematic review"},
+            {"PMCID": "PMC-STUDY-1", "Title": "Study one"},
+            {"PMCID": "PMC-STUDY-2", "Title": "Study two"},
+        ]
+        process_paper.side_effect = [
+            {"Relevant": True, "Is_SLR": True},
+            {"Relevant": True, "Is_SLR": False},
+            {"Relevant": True, "Is_SLR": False},
+        ]
+        request = main.SearchRequest(
+            medical_query="diabetes",
+            normalized_query="diabetes mellitus",
+            query_confirmed=True,
+            paper_count=2,
+            run_agents=True,
+            max_agent_papers=2,
+            slr_handling="exclude",
+        )
+        job_id = main._new_job(request)
+
+        main._run_search_job(job_id, request)
+        result = main._job_snapshot(job_id)["result"]
+
+        self.assertEqual(result["returned"], 2)
+        self.assertEqual(result["excluded_slr"], 1)
+        self.assertEqual(
+            [paper["PMCID"] for paper in result["papers"]],
+            ["PMC-STUDY-1", "PMC-STUDY-2"],
+        )
+
+    @patch("main.process_paper")
+    @patch("main.get_required_pmc_papers")
     def test_search_pipeline_builds_complete_job(
         self,
         get_required_pmc_papers,

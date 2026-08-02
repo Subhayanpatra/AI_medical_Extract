@@ -7,7 +7,8 @@ from .gemini_client import generate_json
 SLR_PROMPT = """
 You are an expert Systematic Literature Review (SLR) Identification Agent.
 
-Classify the supplied biomedical article and identify its study design.
+Classify the supplied medical, clinical, healthcare, or life-sciences research
+article and identify its study design.
 
 Set Is_SLR=true only when the article itself systematically identifies,
 screens, selects, and synthesizes previous studies. A paper is not an SLR
@@ -33,9 +34,6 @@ __TITLE__
 
 EXTRACTED SECTIONS:
 __SECTIONS__
-
-FULL TEXT:
-__FULL_TEXT__
 """
 
 
@@ -63,21 +61,18 @@ def _nullable_boolean(value: Any) -> bool | None:
 def slr_agent(
     title: Any,
     sections: Any,
-    full_text: Any,
     max_characters: int = 90000,
 ) -> dict:
     title_text = _text(title)
     sections_text = _text(sections)
-    full_text_value = _text(full_text)
 
-    if not full_text_value:
+    if not sections_text:
         return {"Is_SLR": None, "Study_Design": "Unclear"}
 
     prompt = (
         SLR_PROMPT
         .replace("__TITLE__", title_text)
-        .replace("__SECTIONS__", sections_text)
-        .replace("__FULL_TEXT__", full_text_value[:max_characters])
+        .replace("__SECTIONS__", sections_text[:max_characters])
     )
 
     try:

@@ -6,7 +6,6 @@ import math
 import os
 import re
 import threading
-import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -197,34 +196,37 @@ def _run_search_job(job_id: str, request: SearchRequest) -> None:
             progress=15,
             message=f"Searching PubMed for {request.paper_count} PMC papers…",
         )
-        papers = get_required_pmc_papers(
+        candidate_limit = min(request.paper_count * 5, 1000)
+        candidates = get_required_pmc_papers(
             disease=normalized_query,
-            required_papers=request.paper_count,
+            required_papers=candidate_limit,
             start_year=request.start_year,
             end_year=request.end_year,
         )
 
-        if papers:
-            papers_to_process = len(papers)
-            extended_agent_limit = (
-                min(request.max_agent_papers, papers_to_process)
-                if request.run_agents
-                else 0
-            )
-            for index, paper in enumerate(papers):
-                run_extended_agents = index < extended_agent_limit
-                progress = 25 + round((index / max(1, papers_to_process)) * 65)
+        papers = []
+        candidates_assessed = 0
+        not_relevant_count = 0
+        excluded_slr_count = 0
+
+        if candidates:
+            for index, paper in enumerate(candidates):
+                run_extended_agents = (
+                    request.run_agents
+                    and len(papers) < request.max_agent_papers
+                )
+                progress = 25 + round((index / max(1, len(candidates))) * 65)
                 processing_label = (
                     "Running advanced extraction from SLR through outcomes"
                     if run_extended_agents
-                    else "Retrieving full text, supplements, and relevance"
+                    else "Checking relevance before supplementary extraction"
                 )
                 _update_job(
                     job_id,
                     stage="extracting",
                     progress=progress,
                     message=(
-                        f"{processing_label} {index + 1}/{papers_to_process}: "
+                        f"{processing_label} {index + 1}/{len(candidates)}: "
                         f"{paper.get('PMCID', '')}"
                     ),
                 )
@@ -235,18 +237,23 @@ def _run_search_job(job_id: str, request: SearchRequest) -> None:
                         query=str(normalization.get("original_user_query", "")),
                         include_supplementary=True,
                         run_extended_agents=run_extended_agents,
+                        exclude_slr=request.slr_handling == "exclude",
                     )
                 except Exception as exc:
                     agent_result = {"Agent_Error": str(exc)}
                 paper.update(agent_result)
-                if index + 1 < papers_to_process:
-                    time.sleep(1)
+                candidates_assessed += 1
 
-            if request.slr_handling == "exclude":
-                papers = [
-                    paper for paper in papers
-                    if paper.get("Is_SLR") is not True
-                ]
+                if paper.get("Relevant") is not True:
+                    not_relevant_count += 1
+                    continue
+                if request.slr_handling == "exclude" and paper.get("Is_SLR") is True:
+                    excluded_slr_count += 1
+                    continue
+
+                papers.append(paper)
+                if len(papers) >= request.paper_count:
+                    break
 
         safe_papers = [_json_safe(paper) for paper in papers]
         result = {
@@ -254,6 +261,9 @@ def _run_search_job(job_id: str, request: SearchRequest) -> None:
             "pubmed_query": pubmed_query,
             "requested": request.paper_count,
             "returned": len(safe_papers),
+            "candidates_assessed": candidates_assessed,
+            "not_relevant": not_relevant_count,
+            "excluded_slr": excluded_slr_count,
             "papers": safe_papers,
             "metrics": {
                 "total_papers": len(safe_papers),
@@ -270,7 +280,10 @@ def _run_search_job(job_id: str, request: SearchRequest) -> None:
             status="complete",
             stage="complete",
             progress=100,
-            message=f"Completed. Found {len(safe_papers)} PMC papers.",
+            message=(
+                f"Completed. Found {len(safe_papers)} relevant PMC papers "
+                f"after assessing {candidates_assessed} candidates."
+            ),
             result=result,
         )
     except Exception as exc:
