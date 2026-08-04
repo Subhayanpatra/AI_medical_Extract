@@ -2,411 +2,125 @@
 
 from __future__ import annotations
 
-from .gemini_client import generate_json
+from .openai_client import generate_json
 
 
-PROMPT = """You are a Clinical and Medical Query Normalization Agent for medical, clinical, healthcare, and life-sciences research literature retrieval, PubMed search, evidence synthesis, Real-World Evidence (RWE), and Health Economics and Outcomes Research (HEOR).
+PROMPT = r"""You are an expert search specialist for medical, clinical,
+healthcare, and life-sciences research literature.
 
-Your task is to normalize a user's medical or clinical search query before it is used to build a PubMed search.
+TASK
+Convert any user input into a concise, optimized PubMed/PMC Boolean search query. The input may be a paper title, disease, drug, treatment, clinical question, medical sentence, abbreviation, misspelling, or combination of medical, clinical, healthcare, or life-sciences research concepts.
 
-The raw user input will be preserved separately in the Python variable `user_input`.
+Do not copy or mechanically rewrite a title. Identify the few concepts with the greatest retrieval value so the query can find the target paper and closely related papers.
 
-The `original_user_query` output field must contain the corrected natural-language version of the query after:
-- correcting spelling mistakes
-- expanding clear medical, clinical, RWE, and HEOR abbreviations
-- correcting capitalization, spacing, and hyphenation
-- normalizing clear medical terminology
-- converting clear brand names to generic drug names
-
-Do not add Boolean operators such as AND or OR to `original_user_query`.
-Preserve the user's complete medical and research intent.
-
-Your normalized query is intended primarily for literature retrieval.
-
-DOMAIN SCOPE
-
-The query may relate to any medical, clinical, healthcare, pharmaceutical, or
-life-sciences research topic, including but not limited to:
-
-clinical research
-clinical trials
-observational studies
-epidemiology
-pharmacology
-therapeutics
-diagnostics
-medical coding
-public health
-systematic reviews
-meta-analysis
-comparative effectiveness research
-drug safety
-pharmacovigilance
-oncology
-hematology
-rare diseases
-cardiovascular disease
-endocrinology
-respiratory disease
-neurology
-immunology
-infectious diseases
-gastroenterology
-rheumatology
-nephrology
-psychiatry
-dermatology
-pediatrics
-geriatrics
-surgery
-biomarkers
-genetics
-genomics
-pathology
-laboratory medicine
-medical devices
-digital health
-healthcare services
-real-world evidence
-real-world data
-health economics and outcomes research
-treatment patterns
-treatment sequencing
-burden of illness
-healthcare resource utilization
-costs
-cost-effectiveness
-cost-utility
-budget impact
-quality of life
-patient-reported outcomes
-adherence
-persistence
-survival
-mortality
-disease progression
-healthcare utilization
-clinical outcomes
-
-PRIMARY OBJECTIVE
-
-Normalize the user's query while preserving the user's complete medical and research intent.
-
-The normalized query must improve PubMed retrieval without unnecessarily changing, simplifying, or reinterpreting the user's intended research question.
-
-IMPORTANT: FIRST DETECT QUERY STYLE
-
-Before normalization, determine whether the input is:
-
-1. SHORT KEYWORD-STYLE QUERY
-
-A short, search-like input containing a small number of medical or research concepts.
-
-Examples:
-
-SGLT2 heart failure costs
-breast cancer using Optum data
-NSCLC pembrolizumab survival
-PFS breast ca
-diabetes kidney disease mortality
-
-OR
-
-2. DETAILED NATURAL-LANGUAGE RESEARCH QUERY
-
-A descriptive sentence or detailed research question containing explicit relationships between treatments, comparators, populations, outcomes, methods, databases, settings, or other research concepts.
-
-Examples:
-
-overall survival after chemotherapy in lung cancer
-Real-world comparative effectiveness and healthcare resource utilization of first-line pembrolizumab plus chemotherapy versus chemotherapy alone in PD-L1-positive metastatic non-small cell lung cancer using the Flatiron Health database
-Cost-effectiveness and budget impact of GLP-1 receptor agonists versus SGLT2 inhibitors in patients with type 2 diabetes mellitus, chronic kidney disease, and heart failure from a US payer perspective
-
-Do not classify the query using word count alone.
-
-Determine whether the input behaves like a keyword search or a detailed natural-language research query.
-
-NORMALIZATION STRATEGY A: SHORT KEYWORD-STYLE QUERY
-
-For short keyword-style queries:
-
-1. Identify every meaningful medical, clinical, healthcare, scientific, RWE, or HEOR search concept.
-2. Preserve all meaningful concepts, including diseases, conditions, drugs, drug classes, therapies, procedures, biomarkers, genes, outcomes, economic terms, populations, databases, coding systems, study designs, and research methods.
-3. Correct spelling and obvious terminology errors.
-4. Expand abbreviations when the medical or research meaning is clear from context.
-5. Normalize clearly incorrect medical terminology to the preferred medical concept when the intended concept is unambiguous.
-6. Normalize brand names to generic drug names when appropriate.
-7. Remove only non-informative connector or filler words when they do not represent meaningful search intent.
-8. Connect the remaining meaningful search concepts using AND.
-9. Do not remove outcomes or economic concepts simply because they are not diseases or treatments.
-
-Example:
-SGLT2 heart failure costs
-
-must normalize to:
-Sodium-glucose cotransporter 2 AND heart failure AND costs
-
-NORMALIZATION STRATEGY B: DETAILED NATURAL-LANGUAGE RESEARCH QUERY
-
-For detailed natural-language research queries:
-
-1. Preserve the sentence structure and complete research meaning as much as possible.
-2. Do NOT convert the entire query into an AND-separated keyword query.
-3. Do NOT aggressively simplify the query.
-4. Do NOT remove meaningful concepts.
-5. Preserve explicit relationships expressed by words or phrases such as after, before, versus, compared with, plus, alone, following, associated with, among, in patients with, receiving, first-line, second-line, maintenance, refractory, relapsed, metastatic, from a payer perspective, using a named database.
-6. Only perform necessary spelling, capitalization, hyphenation, spacing, terminology, abbreviation, and brand-to-generic normalization.
-
-CRITICAL INTENT PRESERVATION RULE
-
-Never remove a meaningful concept solely to make the query shorter.
-
-Concepts such as costs, overall survival, progression-free survival, mortality,
-safety, effectiveness, healthcare resource utilization, budget impact,
-quality of life, treatment sequencing, adherence, and persistence must be
-preserved when the user includes them.
-
-Do not infer concepts the user did not provide.
-
-Example:
-
-breast cancer immunotherapy
-
-must NOT become:
-
-breast cancer AND pembrolizumab
-
-because the user did not specify pembrolizumab.
-
-Do not infer a disease subtype, stage, treatment, outcome, population, or
-database unless it is clearly stated or required to correct an unambiguous
-terminology error.
-
-ABBREVIATION NORMALIZATION
-
-Expand medical, clinical, RWE, and HEOR abbreviations when their meaning is
-clear from context.
-
-Examples:
-
-NSCLC -> non-small cell lung cancer
-SCLC -> small cell lung cancer
-CRC -> colorectal cancer
-HCC -> hepatocellular carcinoma
-AML -> acute myeloid leukemia
-CLL -> chronic lymphocytic leukemia
-CML -> chronic myeloid leukemia
-MM -> multiple myeloma
-T2DM -> type 2 diabetes mellitus
-COPD -> chronic obstructive pulmonary disease
-SGLT2 -> Sodium-glucose cotransporter 2
-GLP-1 -> glucagon-like peptide-1
-PFS -> progression-free survival
-OS -> overall survival
-RWE -> real-world evidence
-RWD -> real-world data
-HCRU -> healthcare resource utilization
-QALY -> quality-adjusted life year
-RCT -> randomized controlled trial
-PSM -> propensity score matching
-CAR-T -> chimeric antigen receptor T-cell
-MRI -> magnetic resonance imaging
-
-Expand an abbreviation only when its meaning is sufficiently clear from the
-query context. Preserve genuinely ambiguous abbreviations.
-
-If an abbreviation has multiple plausible medical meanings and context does
-not resolve it, do not guess. Set is_ambiguous and requires_user_selection to
-true, leave normalized_query empty, and return 2 to 6 ranked options. Each
-option must contain option_id, full_form, category, and a PubMed-ready
-normalized_query that preserves the other concepts in the input.
-
-MEDICAL TERMINOLOGY NORMALIZATION
-
-Prefer recognized medical and healthcare terminology consistent with common
-medical, clinical, healthcare, and life-sciences vocabularies and naming
-conventions, including MeSH, UMLS, SNOMED
-CT, ICD, MedDRA, RxNorm, WHO Drug Dictionary, HGNC, and NCBI terminology.
-
-Normalize incorrect or non-standard terminology only when the intended
-medical concept is clear.
-
-Examples:
-
-breast ca -> breast cancer
-diabtes mellitus -> diabetes mellitus
-hypertention -> hypertension
-alzhimers disease -> Alzheimer's disease
-osteoperosis -> osteoporosis
-pembrolizmab -> pembrolizumab
-metformine -> metformin
-
-Do not replace a term with a different disease merely because the spelling is
-similar.
+1. INTERPRET AND NORMALIZE
+- Correct spelling, capitalization, spacing, and hyphenation.
+- Expand an abbreviation when its medical meaning is clear (for example, NSCLC -> Non-Small Cell Lung Cancer; T2DM -> Type 2 Diabetes Mellitus).
+- Correct obvious abbreviation typos when unambiguous (for example, NSCLS -> NSCLC -> Non-Small Cell Lung Cancer).
+- Normalize a clear misspelling to the intended standard concept (for example, "Diabate mallu" -> Diabetes Mellitus).
+- Preserve established gene/protein notation such as PD-L1, EGFR, HER2, BRCA1, and mTOR.
+- Standardize forms such as PD L1 positive -> PD-L1-positive.
+- Never invent a disease subtype, stage, treatment, outcome, population, database, or code that the user did not state.
 
 BRAND-TO-GENERIC NORMALIZATION
+Convert a recognized brand to its generic drug name when the mapping is clear, for example Keytruda -> Pembrolizumab, Jardiance -> Empagliflozin, and Ozempic -> Semaglutide. Do not add a generic drug when the user mentions only a drug class.
 
-Normalize recognized brand names to generic drug names when appropriate.
+CRITICAL INTENT PRESERVATION RULE
+Conciseness must not change the user's research intent. Keep a lower-priority concept when it defines the requested relationship, outcome, setting, method, database, economic question, or coding request. Remove only concepts that are generic, redundant, or unlikely to improve retrieval.
+
+If a short abbreviation has multiple plausible medical meanings and context does not resolve it, do not guess. Set is_ambiguous and requires_user_selection to true, leave boolean_query and normalized_query empty, and return 2-6 ranked ambiguity_options. Each option must have option_id, full_form, category, and normalized_query.
+
+2. EXTRACT MEDICAL, CLINICAL, HEALTHCARE, AND LIFE-SCIENCES ENTITIES
+Select meaningful searchable concepts such as:
+- disease, disorder, syndrome, or clinical condition
+- drug, drug class, treatment, procedure, herbal medicine, or device
+- biomarker, gene, protein, organism, organ, microbiota, or anatomical site
+- distinctive clinical outcome, population, setting, database, study method, economic concept, or coding system when it is essential to the user's intent
+
+normalized_entities must contain only clean, standardized concepts selected for the final Boolean query. Every normalized entity must be represented in boolean_query. Do not put filler phrases or Boolean operators in normalized_entities.
+
+3. REMOVE LOW-VALUE LANGUAGE
+Exclude generic title/research wording when it does not define the request, including: effect, effects, role, study, study protocol, review, comprehensive review, investigation, analysis, assessment, evaluation, comparison, association, relationship, potential, patients with, among, using, through, based on, may, could, should, would, such as, and including.
+
+Also exclude publication-design wording such as randomized, controlled trial, double-blind, or meta-analysis unless the user explicitly asks to restrict retrieval by study design.
+
+Do not remove a clinical outcome, economic concept, method, setting, database, or coding system merely because it has lower general priority. Retain it when it is central or helps distinguish the target paper. For example, retain Defecation, Overall Survival, Primary Care, Optum, or International Classification of Diseases when explicitly central.
+
+removed_words must list meaningful words or phrases from the input that were excluded from the Boolean query. Do not list punctuation or trivial articles such as "a", "an", or "the".
+
+4. RANK AND SELECT
+General priority:
+1) disease/condition
+2) drug/treatment/procedure/herbal medicine/device
+3) distinctive biomarker, anatomy, organism, or microbiota
+4) essential outcome, population, setting, method, database, economic concept, or coding system
+
+Normally retain 2-4 high-value concepts. Use one concept when the input contains only one valid concept. Use a fifth concept only when it is essential to preserve intent or distinguish a specific target paper. Prefer a simpler query; too many AND clauses reduce recall.
+
+For a probable paper title, retain distinctive concepts needed to retrieve that paper, not just its disease. For a broad topic, use fewer concepts. For a short misspelled term or abbreviation, normalize it without adding unrelated concepts.
+
+5. BUILD THE BOOLEAN QUERY
+- Use AND between different concepts.
+- Use OR only inside parentheses for true synonyms, abbreviations, spelling variants, or alternative drug names when these materially improve retrieval.
+- Put quotation marks around multi-word phrases.
+- Do not add MeSH field tags unless the user explicitly asks for a MeSH-specific query.
+- boolean_query and normalized_query must contain the same PubMed-ready query. normalized_query is a backward-compatible alias required by the application.
 
 Examples:
 
-Keytruda -> pembrolizumab
-Opdivo -> nivolumab
-Tecentriq -> atezolizumab
-Imfinzi -> durvalumab
-Yervoy -> ipilimumab
-Tagrisso -> osimertinib
-Lynparza -> olaparib
-Ibrance -> palbociclib
-Verzenio -> abemaciclib
-Eliquis -> apixaban
-Xarelto -> rivaroxaban
-Pradaxa -> dabigatran
-Jardiance -> empagliflozin
-Farxiga -> dapagliflozin
-Ozempic -> semaglutide
-Mounjaro -> tirzepatide
-Humira -> adalimumab
-Enbrel -> etanercept
-Remicade -> infliximab
+Input: MI
+If no context resolves MI, return ambiguity options such as Myocardial Infarction and Mitral Insufficiency rather than guessing.
 
-SCIENTIFIC NOTATION
+Input: NSCLS
+normalized_entities: ["Non-Small Cell Lung Cancer"]
+boolean_query: "\"Non-Small Cell Lung Cancer\""
 
-Preserve established notation such as mTOR, PD-L1, PD-1, EGFR, ALK, HER2,
-BRCA1, BRCA2, KRAS, MSI, dMMR, and COVID-19.
+Input: Diabate mallu
+normalized_entities: ["Diabetes Mellitus"]
+boolean_query: "\"Diabetes Mellitus\""
 
-Standardize clear forms such as:
+Input: Breast Cancer for ICD code
+normalized_entities: ["Breast Cancer", "International Classification of Diseases"]
+removed_words: ["for", "code"]
+boolean_query: "\"Breast Cancer\" AND (\"International Classification of Diseases\" OR ICD)"
 
-Real World Evidence -> real-world evidence
-Cost Effectiveness Analysis -> cost-effectiveness analysis
-mTOR Targeted Therapy -> mTOR-targeted therapy
-PD L1 positive -> PD-L1-positive
-first line -> first-line
+Input: Chronic limb threatening ischemia and diabetes mellitus: the severity of tibial atherosclerosis and outcome after infrapopliteal revascularization.
+normalized_entities: ["Chronic Limb-Threatening Ischemia", "Diabetes Mellitus", "Tibial Atherosclerosis", "Infrapopliteal Revascularization"]
+removed_words: ["Severity", "Outcome after"]
+boolean_query: "\"Chronic Limb-Threatening Ischemia\" AND \"Diabetes Mellitus\" AND \"Tibial Atherosclerosis\" AND \"Infrapopliteal Revascularization\""
 
-REPRESENTATIVE SHORT QUERY EXAMPLES
+Input: Non-laboratory-based risk assessment model for case detection of diabetes mellitus and pre-diabetes in primary care.
+normalized_entities: ["Diabetes Mellitus", "Prediabetes", "Non-Laboratory-Based Risk Assessment", "Primary Care"]
+removed_words: ["Model for", "Case detection of"]
+boolean_query: "\"Diabetes Mellitus\" AND Prediabetes AND \"Non-Laboratory-Based Risk Assessment\" AND \"Primary Care\""
 
-Input: SGLT2 heart failur cost
-Original user query: Sodium-glucose cotransporter 2 heart failure costs
-Normalized query: Sodium-glucose cotransporter 2 AND heart failure AND costs
+VALIDITY
+Return an invalid result only when no meaningful medical, clinical, healthcare, pharmaceutical, life-sciences, RWE, HEOR, outcome, treatment, coding, or research concept exists. A single disease, outcome, or valid abbreviation can be valid.
 
-Input: breast cancer using Optum data
-Normalized query: breast cancer AND Optum
-
-Input: NSCLC pembrolizumab survival
-Normalized query: non-small cell lung cancer AND pembrolizumab AND survival
-
-Input: PFS breast ca
-Normalized query: progression-free survival AND breast cancer
-
-Input: HCRU COPD
-Normalized query: healthcare resource utilization AND chronic obstructive pulmonary disease
-
-Input: QALY breast cancer
-Normalized query: quality-adjusted life year AND breast cancer
-
-Input: PD L1 positive NSCLC
-Normalized query: PD-L1-positive AND non-small cell lung cancer
-
-Input: first line pembrolizumab
-Normalized query: first-line AND pembrolizumab
-
-REPRESENTATIVE DETAILED QUERY EXAMPLES
-
-Input:
-overall survival after chemotherapy in lung cancer
-
-Normalized query:
-chemotherapy AND lung cancer AND survival
-
-This concise search request is optimized around the central searchable
-concepts chemotherapy, lung cancer, and survival.
-
-Input:
-Real-world comparative effectiveness and healthcare resource utilization of
-first-line pembrolizumab plus chemotherapy versus chemotherapy alone in
-PD-L1-positive metastatic non-small cell lung cancer using the Flatiron
-Health database
-
-Normalized query:
-Real-world comparative effectiveness and healthcare resource utilization of
-first-line pembrolizumab plus chemotherapy versus chemotherapy alone in
-PD-L1-positive metastatic non-small cell lung cancer using the Flatiron
-Health database
-
-Input:
-Cost-effectiveness and budget impact of GLP-1 receptor agonists versus SGLT2
-inhibitors in patients with type 2 diabetes mellitus, chronic kidney disease,
-and heart failure from a US payer perspective
-
-Normalized query:
-Cost-effectiveness and budget impact of glucagon-like peptide-1 receptor
-agonists versus Sodium-glucose cotransporter 2 inhibitors in patients with
-type 2 diabetes mellitus, chronic kidney disease, and heart failure from a US
-payer perspective
-
-Input:
-Real-world treatment sequencing, PFS, OS, healthcare resource utilization,
-and costs among patients with relapsed or refractory multiple myeloma
-receiving CAR-T cell therapy versus bispecific antibodies
-
-Normalized query:
-Real-world treatment sequencing, progression-free survival, overall survival,
-healthcare resource utilization, and costs among patients with relapsed or
-refractory multiple myeloma receiving chimeric antigen receptor T-cell
-therapy versus bispecific antibodies
-
-Input:
-Propensity score-weighted comparative safety and effectiveness of apixaban
-versus rivaroxaban in elderly patients with atrial fibrillation using Optum
-Clinformatics claims data
-
-Normalized query:
-Propensity score-weighted comparative safety and effectiveness of apixaban
-versus rivaroxaban in elderly patients with atrial fibrillation using Optum
-Clinformatics claims data
-
-INVALID QUERY RULES
-
-Return INVALID_MEDICAL_TERM only when the input has no meaningful medical,
-clinical, healthcare, pharmaceutical, life-sciences, RWE, HEOR, outcome,
-treatment, disease, or research concept.
-
-Examples of invalid queries:
-
-apple mobile
-iphone charger
-weather today
-
-Do not mark a query invalid merely because it is short. Cancer, survival,
-mortality, costs diabetes, and RWE oncology are potentially valid health-research
-queries.
-
-Return only valid JSON.
-Do not write explanations.
-Do not use markdown.
-Do not wrap the JSON inside code fences.
+OUTPUT
+Return only one valid JSON object. Do not use Markdown, comments, code fences, or any text outside the JSON.
 
 Input:
 {user_input}
 
-Return exactly this JSON structure:
-
+Return exactly this structure:
 {{
   "input": "",
   "original_user_query": "",
+  "normalized_entities": [],
+  "removed_words": [],
+  "boolean_query": "",
   "normalized_query": "",
+  "reason": "",
   "is_valid_medical_query": true,
   "confidence": 0.0,
-  "query_style": "",
+  "query_style": "keyword_query",
   "is_ambiguous": false,
   "requires_user_selection": false,
   "ambiguity_options": []
 }}
 
-The query_style value must be exactly one of:
-- keyword_query
-- detailed_query
-- invalid_query
+query_style must be exactly keyword_query, detailed_query, or invalid_query. Use detailed_query for a title or detailed clinical/research sentence, while still returning a concise Boolean query.
 """
 
 
@@ -422,7 +136,11 @@ def normalize_query(user_input: str) -> dict:
         return {
             "input": cleaned_input,
             "original_user_query": cleaned_input,
+            "normalized_entities": [],
+            "removed_words": [],
+            "boolean_query": "",
             "normalized_query": "",
+            "reason": "",
             "is_valid_medical_query": None,
             "confidence": 0.0,
             "query_style": "",
@@ -434,40 +152,47 @@ def normalize_query(user_input: str) -> dict:
     if not isinstance(raw, dict):
         raise ValueError("Query normalization agent returned a non-object response.")
 
+    boolean_query = str(raw.get("boolean_query", "")).strip()
     normalized_query = str(raw.get("normalized_query", "")).strip()
+    # Accept the old response contract during rollout, but always expose both keys.
+    final_query = boolean_query or normalized_query
     original_user_query = str(raw.get("original_user_query", "")).strip()
-    is_valid = raw.get("is_valid_medical_query", False)
-    if isinstance(is_valid, str):
-        is_valid = is_valid.strip().casefold() == "true"
-    else:
-        is_valid = bool(is_valid)
+    normalized_entities = _normalize_string_list(raw.get("normalized_entities"))
+    removed_words = _normalize_string_list(raw.get("removed_words"))
+    reason = str(raw.get("reason", "")).strip()
+    is_valid = _as_boolean(raw.get("is_valid_medical_query", False))
 
     try:
         confidence = float(raw.get("confidence", 0.0))
     except (TypeError, ValueError) as exc:
         raise ValueError("Query normalization agent returned an invalid confidence.") from exc
-
     confidence = max(0.0, min(1.0, confidence))
+
     is_ambiguous = _as_boolean(raw.get("is_ambiguous", False))
     ambiguity_options = _normalize_ambiguity_options(raw.get("ambiguity_options"))
     if is_ambiguous and len(ambiguity_options) >= 2:
         return {
             "input": cleaned_input,
             "original_user_query": original_user_query or cleaned_input,
+            "normalized_entities": [],
+            "removed_words": removed_words,
+            "boolean_query": "",
             "normalized_query": "",
+            "reason": reason,
             "is_valid_medical_query": True,
             "confidence": confidence,
-            "query_style": str(raw.get("query_style", "keyword_query")).strip(),
+            "query_style": _normalize_query_style(raw.get("query_style")),
             "is_ambiguous": True,
             "requires_user_selection": True,
             "ambiguity_options": ambiguity_options,
-            "normalization_method": "Gemini",
+            "normalization_method": "OpenAI GPT",
             "normalization_warning": "",
         }
+
     if (
         not is_valid
-        or not normalized_query
-        or normalized_query.upper() in {
+        or not final_query
+        or final_query.upper() in {
             "INVALID",
             "INVALID_QUERY",
             "INVALID_DISEASE",
@@ -476,25 +201,22 @@ def normalize_query(user_input: str) -> dict:
     ):
         return _invalid_result(cleaned_input, confidence)
 
-    query_style = str(raw.get("query_style", "")).strip()
-    if query_style not in {"keyword_query", "detailed_query"}:
-        query_style = "keyword_query"
-
     return {
         "input": cleaned_input,
         "original_user_query": original_user_query or cleaned_input,
-        "normalized_query": normalized_query,
+        "normalized_entities": normalized_entities,
+        "removed_words": removed_words,
+        "boolean_query": final_query,
+        "normalized_query": final_query,
+        "reason": reason,
         "is_valid_medical_query": True,
         "confidence": confidence,
-        "query_style": query_style,
+        "query_style": _normalize_query_style(raw.get("query_style")),
         "is_ambiguous": False,
         "requires_user_selection": False,
         "ambiguity_options": [],
-        "normalization_method": "Gemini",
+        "normalization_method": "OpenAI GPT",
         "normalization_warning": "",
-        "is_ambiguous": False,
-        "requires_user_selection": False,
-        "ambiguity_options": [],
     }
 
 
@@ -502,6 +224,24 @@ def _as_boolean(value: object) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().casefold() in {"true", "yes", "1"}
+
+
+def _normalize_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    values = []
+    for item in value:
+        text = str(item).strip()
+        if text and text not in values:
+            values.append(text)
+    return values
+
+
+def _normalize_query_style(value: object) -> str:
+    query_style = str(value or "").strip()
+    if query_style not in {"keyword_query", "detailed_query"}:
+        return "keyword_query"
+    return query_style
 
 
 def _normalize_ambiguity_options(value: object) -> list[dict]:
@@ -530,10 +270,17 @@ def _invalid_result(user_input: str, confidence: float = 0.0) -> dict:
     return {
         "input": user_input,
         "original_user_query": user_input,
+        "normalized_entities": [],
+        "removed_words": [],
+        "boolean_query": "",
         "normalized_query": "INVALID_MEDICAL_TERM",
+        "reason": "No meaningful medical, clinical, healthcare, or life-sciences research concept was identified.",
         "is_valid_medical_query": False,
         "confidence": confidence,
         "query_style": "invalid_query",
-        "normalization_method": "Gemini",
+        "is_ambiguous": False,
+        "requires_user_selection": False,
+        "ambiguity_options": [],
+        "normalization_method": "OpenAI GPT",
         "normalization_warning": "",
     }

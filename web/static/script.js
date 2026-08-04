@@ -13,6 +13,7 @@ const elements = {
     runAgents: byId("run-agents"),
     maxAgentPapers: byId("max-agent-papers"),
     slrHandling: byId("slr-handling"),
+    generateSap: byId("generate-sap"),
     searchButton: byId("search-button"),
     jobPanel: byId("job-panel"),
     jobStage: byId("job-stage"),
@@ -31,6 +32,10 @@ const elements = {
     sheetTable: byId("sheet-table"),
     sheetColumnCount: byId("sheet-column-count"),
     closeSheetButton: byId("close-sheet-button"),
+    sapResult: byId("sap-result"),
+    sapSummary: byId("sap-summary"),
+    sapContent: byId("sap-content"),
+    downloadSapButton: byId("download-sap-button"),
     dialog: byId("paper-dialog"),
     dialogTitle: byId("dialog-title"),
     dialogPmcid: byId("dialog-pmcid"),
@@ -217,6 +222,7 @@ function buildSearchPayload() {
         run_agents: runAgents,
         max_agent_papers: maxAgentPapers,
         slr_handling: elements.slrHandling.value,
+        generate_sap: elements.generateSap.checked,
     };
 }
 
@@ -236,6 +242,8 @@ function resetResults() {
     elements.downloadButton.hidden = true;
     elements.viewSheetButton.hidden = true;
     elements.dataSheet.hidden = true;
+    elements.sapResult.hidden = true;
+    elements.sapContent.replaceChildren();
     elements.sheetTable.replaceChildren();
     elements.normalizationBanner.hidden = true;
     elements.resultSummary.textContent = "Your search is running.";
@@ -244,7 +252,7 @@ function resetResults() {
     metrics.countries.textContent = "0";
     metrics.codes.textContent = "0";
     elements.resultsBody.replaceChildren(createEmptyRow(
-        "Searching the biomedical literature…",
+        "Searching medical, clinical, healthcare, and life-sciences research literature…",
         "Results will appear here when processing is complete.",
         "fa-spinner"
     ));
@@ -481,8 +489,62 @@ function renderResult(result, jobId) {
     elements.downloadButton.hidden = activePapers.length === 0;
     elements.viewSheetButton.hidden = activePapers.length === 0;
     renderDataSheet();
+    renderSap(result.sap, result.sap_requested, jobId);
     elements.jobPanel.hidden = true;
     document.getElementById("results").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderSap(sap, requested, jobId) {
+    elements.sapContent.replaceChildren();
+    if (!requested) {
+        elements.sapResult.hidden = true;
+        return;
+    }
+
+    elements.sapResult.hidden = false;
+    elements.downloadSapButton.href = `/api/jobs/${encodeURIComponent(jobId)}/sap/download`;
+    const contributing = Number(sap?.["Contributing extracted papers"] || 0);
+    const returned = Number(sap?.["Returned relevant papers"] || 0);
+    const requestedCount = Number(sap?.["Requested papers"] || 0);
+    elements.sapSummary.textContent =
+        `${requestedCount} papers requested; ${returned} relevant papers returned; ` +
+        `${contributing} extracted papers contributed to this single draft SAP.`;
+
+    if (!sap || sap.SAP_Agent_Error) {
+        const block = document.createElement("article");
+        block.className = "sap-block";
+        const heading = document.createElement("h3");
+        heading.textContent = "SAP generation status";
+        const message = document.createElement("p");
+        message.textContent = sap?.SAP_Agent_Error || "SAP generation did not return content.";
+        block.append(heading, message);
+        elements.sapContent.append(block);
+        return;
+    }
+
+    Object.entries(sap).forEach(([label, value]) => {
+        if (["Requested papers", "Returned relevant papers", "Contributing extracted papers"].includes(label)) return;
+        if (value === null || value === "" || (Array.isArray(value) && value.length === 0)) return;
+        const block = document.createElement("article");
+        block.className = "sap-block";
+        const heading = document.createElement("h3");
+        heading.textContent = label;
+        block.append(heading);
+        if (Array.isArray(value)) {
+            const list = document.createElement("ul");
+            value.forEach((item) => {
+                const entry = document.createElement("li");
+                entry.textContent = String(item);
+                list.append(entry);
+            });
+            block.append(list);
+        } else {
+            const text = document.createElement("p");
+            text.textContent = String(value);
+            block.append(text);
+        }
+        elements.sapContent.append(block);
+    });
 }
 
 function stringify(value) {

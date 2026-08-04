@@ -493,13 +493,56 @@ input:focus-visible {
 
 .ai-settings {
     display: grid;
-    grid-template-columns: minmax(250px, 1fr) minmax(120px, 0.4fr) minmax(240px, 1fr);
+    grid-template-columns: repeat(2, minmax(260px, 1fr));
     gap: 1rem;
     align-items: center;
     margin-top: 1rem;
     padding: 1rem;
     border-radius: 12px;
     background: var(--violet-soft);
+}
+
+.sap-toggle-field {
+    padding: 0.65rem 0.75rem;
+    border: 1px solid rgba(121, 73, 240, 0.16);
+    border-radius: 10px;
+    background: white;
+}
+
+.sap-section {
+    margin-top: 1rem;
+    padding: 1.3rem;
+}
+
+.sap-content {
+    display: grid;
+    gap: 0.8rem;
+    margin-top: 1rem;
+}
+
+.sap-block {
+    padding: 1rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fbfaff;
+}
+
+.sap-block h3 {
+    margin: 0 0 0.55rem;
+    color: var(--purple);
+    font-size: 0.84rem;
+}
+
+.sap-block p,
+.sap-block ul {
+    margin: 0;
+    color: var(--ink);
+    font-size: 0.75rem;
+    line-height: 1.65;
+}
+
+.sap-block ul {
+    padding-left: 1.2rem;
 }
 
 .field.compact label {

@@ -41,6 +41,10 @@ class WebApplicationTests(unittest.TestCase):
             index.text,
         )
         self.assertIn("const runAgents = elements.runAgents.checked;", script.text)
+        self.assertIn('id="generate-sap"', index.text)
+        self.assertIn('id="sap-result"', index.text)
+        self.assertIn("generate_sap: elements.generateSap.checked", script.text)
+        self.assertIn("function renderSap", script.text)
 
     def test_health_endpoint(self):
         response = self.client.get("/api/health")
@@ -213,6 +217,49 @@ class WebApplicationTests(unittest.TestCase):
         self.assertTrue(process_paper.call_args.kwargs["include_supplementary"])
         self.assertTrue(process_paper.call_args.kwargs["run_extended_agents"])
 
+    @patch("main.sap_agent")
+    @patch("main.process_paper")
+    @patch("main.get_required_pmc_papers")
+    def test_sap_combines_all_returned_relevant_papers(
+        self,
+        get_required_pmc_papers,
+        process_paper,
+        sap_agent,
+    ):
+        get_required_pmc_papers.return_value = [
+            {"PMCID": "PMC1", "Title": "First"},
+            {"PMCID": "PMC2", "Title": "Second"},
+        ]
+        process_paper.side_effect = [
+            {"Relevant": True, "Analysis": "Kaplan-Meier Analysis"},
+            {"Relevant": True, "Analysis": "Cox Regression"},
+        ]
+        sap_agent.return_value = {
+            "Title": "Combined SAP",
+            "Contributing extracted papers": 2,
+        }
+        request = main.SearchRequest(
+            medical_query="diabetes",
+            normalized_query="diabetes mellitus",
+            query_confirmed=True,
+            paper_count=2,
+            run_agents=False,
+            generate_sap=True,
+        )
+        job_id = main._new_job(request)
+
+        main._run_search_job(job_id, request)
+        result = main._job_snapshot(job_id)["result"]
+
+        self.assertTrue(result["sap_requested"])
+        self.assertEqual(result["sap"]["Contributing extracted papers"], 2)
+        self.assertEqual(sap_agent.call_args.kwargs["requested"], 2)
+        self.assertEqual(sap_agent.call_args.kwargs["returned"], 2)
+        self.assertTrue(all(
+            call.kwargs["run_extended_agents"]
+            for call in process_paper.call_args_list
+        ))
+
     @patch("main.process_paper")
     @patch("main.get_required_pmc_papers")
     def test_agents_off_still_processes_every_paper_through_relevance(
@@ -348,6 +395,31 @@ class WebApplicationTests(unittest.TestCase):
         self.assertIn("text/csv", response.headers["content-type"])
         self.assertIn("PMC123", response.content.decode("utf-8-sig"))
 
+    def test_downloads_completed_sap_as_json(self):
+        request = main.SearchRequest(
+            medical_query="diabetes",
+            normalized_query="diabetes mellitus",
+            query_confirmed=True,
+            paper_count=1,
+            generate_sap=True,
+        )
+        job_id = main._new_job(request)
+        main._update_job(
+            job_id,
+            status="complete",
+            result={
+                "normalization": {"normalized_query": "diabetes mellitus"},
+                "papers": [{"PMCID": "PMC123"}],
+                "sap": {"Title": "Combined SAP", "Contributing extracted papers": 1},
+            },
+        )
+
+        response = self.client.get(f"/api/jobs/{job_id}/sap/download")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("application/json", response.headers["content-type"])
+        self.assertEqual(response.json()["Title"], "Combined SAP")
+
     @patch("main.normalize_query")
     def test_normalize_endpoint_returns_query_without_starting_search(self, normalize_query):
         normalize_query.return_value = {
@@ -356,7 +428,7 @@ class WebApplicationTests(unittest.TestCase):
             "is_valid_medical_query": True,
             "confidence": 0.96,
             "query_style": "keyword_query",
-            "normalization_method": "Gemini",
+            "normalization_method": "OpenAI GPT",
         }
 
         response = self.client.post(

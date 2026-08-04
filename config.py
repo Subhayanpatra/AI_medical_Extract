@@ -27,4 +27,4 @@ EMAIL = os.getenv("NCBI_EMAIL") or _legacy_secret(
     "your_email@example.com",
 )
 NCBI_API_KEY = os.getenv("NCBI_API_KEY") or _legacy_secret("NCBI_API_KEY", "")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or _legacy_secret("GEMINI_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or _legacy_secret("OPENAI_API_KEY", "")

@@ -4,7 +4,7 @@ from unittest.mock import patch
 from agents.analysis_agent import ANALYSIS_PROMPT
 from agents.query_evidence_agent import QUERY_EVIDENCE_PROMPT
 from agents.code_agent import CODE_EXTRACTION_PROMPT, _normalize_code_result
-from agents.gemini_client import MODEL_NAME
+from agents.openai_client import MODEL_NAME
 from agents.outcome_agent import OUTCOME_COUNTRY_PROMPT
 from agents.query_normalization_agent import PROMPT, normalize_query
 from agents.slr_agent import SLR_PROMPT, slr_agent
@@ -12,8 +12,8 @@ from pubmed.metadata import _extract_authors_and_affiliations
 
 
 class NotebookUpdateTests(unittest.TestCase):
-    def test_uses_current_gemini_flash_lite(self):
-        self.assertEqual(MODEL_NAME, "gemini-3.5-flash-lite")
+    def test_uses_current_openai_gpt_model(self):
+        self.assertEqual(MODEL_NAME, "gpt-5.6-sol")
 
     @patch("agents.query_normalization_agent.generate_json")
     def test_query_normalization_uses_shared_model_and_accepts_string_boolean(self, generate_json):
@@ -46,6 +46,29 @@ class NotebookUpdateTests(unittest.TestCase):
         self.assertIn("CRITICAL INTENT PRESERVATION RULE", PROMPT)
         self.assertIn("PD-L1-positive", PROMPT)
         self.assertIn("requires_user_selection", PROMPT)
+
+    @patch("agents.query_normalization_agent.generate_json")
+    def test_query_normalization_exposes_entity_and_boolean_contract(self, generate_json):
+        generate_json.return_value = {
+            "original_user_query": "Diabetes Mellitus",
+            "normalized_entities": ["Diabetes Mellitus"],
+            "removed_words": [],
+            "boolean_query": '"Diabetes Mellitus"',
+            "normalized_query": '"Diabetes Mellitus"',
+            "reason": "Corrected an unambiguous misspelling.",
+            "query_style": "keyword_query",
+            "is_valid_medical_query": True,
+            "confidence": 0.97,
+            "is_ambiguous": False,
+            "requires_user_selection": False,
+            "ambiguity_options": [],
+        }
+
+        result = normalize_query("Diabate mallu")
+
+        self.assertEqual(result["normalized_entities"], ["Diabetes Mellitus"])
+        self.assertEqual(result["boolean_query"], '"Diabetes Mellitus"')
+        self.assertEqual(result["normalized_query"], result["boolean_query"])
 
     @patch("agents.query_normalization_agent.generate_json")
     def test_query_normalization_returns_ambiguity_options(self, generate_json):

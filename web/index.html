@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Search PMC literature and extract biomedical evidence with AI.">
+    <meta name="description" content="Search medical, clinical, healthcare, and life-sciences research literature and extract structured evidence with AI.">
     <title>Medical Research AI Platform</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -116,6 +116,14 @@
                         </select>
                         <small>Available when advanced extraction is enabled</small>
                     </div>
+                    <label class="toggle-field sap-toggle-field">
+                        <span>
+                            <strong>Statistical Analysis Plan (SAP)</strong>
+                            <small>Want SAP (On) / Do not want SAP (Off). Combines all extracted relevant papers into one draft SAP.</small>
+                        </span>
+                        <input id="generate-sap" type="checkbox">
+                        <span class="toggle" aria-hidden="true"></span>
+                    </label>
                 </div>
             </form>
         </section>
@@ -205,6 +213,21 @@
                     </tbody>
                 </table>
             </div>
+        </section>
+
+        <section class="sap-section" id="sap-result" aria-labelledby="sap-title" hidden>
+            <div class="section-header">
+                <div>
+                    <p class="section-kicker">Combined evidence</p>
+                    <h2 id="sap-title">Statistical Analysis Plan</h2>
+                    <p id="sap-summary"></p>
+                </div>
+                <a class="secondary-button" id="download-sap-button" href="#">
+                    <i class="fa-solid fa-download" aria-hidden="true"></i>
+                    Download SAP JSON
+                </a>
+            </div>
+            <div class="sap-content" id="sap-content"></div>
         </section>
 
         <section class="sheet-section" id="data-sheet" aria-labelledby="sheet-title" hidden>

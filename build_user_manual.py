@@ -211,7 +211,7 @@ p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 font(p.add_run("Complete User Manual & Project Documentation"), 17, True, BLUE)
 p = doc.add_paragraph()
 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-font(p.add_run("Search PubMed/PMC, retrieve full text and supplementary files,\nand extract structured biomedical evidence with Gemini AI"), 12, False, "555555")
+font(p.add_run("Search PubMed/PMC, retrieve full text and supplementary files,\nand extract structured medical, clinical, healthcare, and life-sciences research evidence with OpenAI GPT"), 12, False, "555555")
 p.paragraph_format.space_after = Pt(32)
 add_callout(doc, "Who this is for", "Researchers, evidence-synthesis teams, analysts, students, administrators, and developers. No programming knowledge is required for the everyday user steps.")
 p = doc.add_paragraph()
@@ -245,7 +245,7 @@ add_callout(doc, "Important", "AI-generated classifications and extracted medica
 page_break(doc)
 doc.add_heading("1. Project overview", level=1)
 doc.add_heading("What AI Extract does", level=2)
-para(doc, "AI Extract is a local web application for biomedical literature discovery and evidence extraction. A user enters a medical research question. The system normalizes the wording, searches PubMed and PMC, returns papers with PMC full text, and can run Gemini-powered extraction on selected papers.")
+para(doc, "AI Extract is a local web application for medical, clinical, healthcare, and life-sciences research literature discovery and evidence extraction. A user enters a medical research question. The system normalizes the wording, searches PubMed and PMC, returns papers with PMC full text, and can run OpenAI GPT-powered extraction on selected papers.")
 doc.add_heading("Main capabilities", level=2)
 for text in [
     "Normalizes short or detailed medical questions before searching.",
@@ -338,7 +338,7 @@ add_table(doc, ["Choice", "Effect"], [
     ("Include SLR", "Keeps all analyzed papers, including systematic reviews."),
     ("Exclude SLR", "Removes papers when Is_SLR is true. This option is available only when advanced extraction is on."),
 ], [2300, 7060])
-add_callout(doc, "Cost and time", "The always-on relevance stage uses Gemini for every returned paper. Advanced extraction adds SLR and several more Gemini requests. Start with a small paper count and advanced-extraction limit.")
+add_callout(doc, "Cost and time", "The always-on relevance stage uses OpenAI GPT for every returned paper. Advanced extraction adds SLR and several more OpenAI API requests. Start with a small paper count and advanced-extraction limit.")
 
 page_break(doc)
 doc.add_heading("5. Understanding and exporting results", level=1)
@@ -370,9 +370,9 @@ doc.add_heading("6. Installation and configuration", level=1)
 doc.add_heading("Requirements", level=2)
 for text in [
     "Windows, macOS, or Linux with Python 3.10+ recommended.",
-    "Internet access to NCBI/PubMed/PMC, Europe PMC or publisher sources for supplements, Google Gemini, and the external font/icon CDNs used by the interface.",
+    "Internet access to NCBI/PubMed/PMC, Europe PMC or publisher sources for supplements, OpenAI, and the external font/icon CDNs used by the interface.",
     "A valid contact email for NCBI. An NCBI API key is optional but recommended for higher request limits.",
-    "A Gemini API key is required for query normalization and AI extraction.",
+    "An OpenAI API key is required for query normalization and AI extraction.",
 ]:
     bullet(doc, text)
 doc.add_heading("Set up the project on Windows PowerShell", level=2)
@@ -390,7 +390,7 @@ doc.add_heading("Configure .env", level=2)
 add_table(doc, ["Variable", "Purpose", "Example / default"], [
     ("NCBI_EMAIL", "Contact email sent with NCBI requests", "your_email@example.com"),
     ("NCBI_API_KEY", "Optional NCBI API key", "Leave blank if unavailable"),
-    ("GEMINI_API_KEY", "Gemini authentication for normalization and AI extraction", "Required for normal use"),
+    ("OPENAI_API_KEY", "OpenAI authentication for normalization and AI extraction", "Required for normal use"),
     ("AI_EXTRACT_HOST", "Server interface", "127.0.0.1"),
     ("AI_EXTRACT_PORT", "Local HTTP port", "8000"),
     ("AI_EXTRACT_MAX_WORKERS", "Concurrent background search workers", "2; minimum 1"),
@@ -411,7 +411,7 @@ doc.add_heading("Dependency summary", level=2)
 add_table(doc, ["Area", "Packages"], [
     ("Web/API", "FastAPI, Uvicorn"),
     ("PubMed/PMC", "Biopython, requests, BeautifulSoup, lxml"),
-    ("AI", "google-genai"),
+    ("AI", "openai"),
     ("Data", "pandas"),
     ("Files", "PyMuPDF, python-docx, python-pptx, openpyxl, xlrd"),
     ("Configuration", "python-dotenv"),
@@ -440,7 +440,7 @@ doc.add_heading("8. Technical architecture and API", level=1)
 doc.add_heading("How a request moves through the system", level=2)
 for text in [
     "Browser sends the user question to POST /api/normalize.",
-    "Gemini normalizes the query and may return abbreviation choices.",
+    "OpenAI GPT normalizes the query and may return abbreviation choices.",
     "After confirmation, POST /api/search creates a background job.",
     "The browser polls GET /api/jobs/{job_id} once per second.",
     "The server searches PubMed, resolves PMC links, and falls back to a direct PMC search when needed.",
@@ -455,7 +455,7 @@ add_table(doc, ["Path", "Responsibility"], [
     ("web/", "Website HTML, CSS, and browser-side JavaScript"),
     ("pubmed/", "Query building, PubMed search, metadata, PMCID mapping, downloading"),
     ("parser/", "PMC XML parsing, cleaning, figures, tables, supplementary discovery/extraction"),
-    ("agents/", "Gemini client and normalization, relevance, SLR, code, method, outcome/country agents"),
+    ("agents/", "OpenAI client and normalization, relevance, SLR, code, method, outcome/country, and SAP agents"),
     ("utils/", "Retry, progress, and helper utilities"),
     ("tests/", "Web, supplementary, and agent/notebook regression tests"),
 ], [2500, 6860])
@@ -474,7 +474,7 @@ doc.add_heading("9. Troubleshooting", level=1)
 add_table(doc, ["Problem", "Likely cause", "What to do"], [
     ("Page does not open", "Server is stopped, wrong port, or firewall issue", "Start main.py; confirm the terminal shows no fatal error; open the configured host/port."),
     ("Service unavailable", "Health request failed", "Refresh; check terminal output; confirm /api/health returns status ok."),
-    ("Query normalization failed", "Missing/invalid Gemini key, network issue, or Gemini error", "Check GEMINI_API_KEY and internet access; restart after editing .env."),
+    ("Query normalization failed", "Missing/invalid OpenAI key, network issue, or OpenAI API error", "Check OPENAI_API_KEY and internet access; restart after editing .env."),
     ("Not recognized as a valid medical query", "Question is non-medical or too vague", "Add disease, treatment, population, outcome, or biomedical terms."),
     ("No PMC papers found", "Query is narrow or papers lack PMCID", "Broaden terms, remove/reduce year filtering, request fewer papers."),
     ("Search is slow", "Every paper retrieves full text/supplements and runs relevance; advanced agents add SLR and later work", "Reduce paper count and advanced-extraction count; add NCBI key; wait for progress."),
@@ -498,7 +498,7 @@ page_break(doc)
 doc.add_heading("10. Security, limits, and good practice", level=1)
 for text in [
     "Do not enter patient names, direct identifiers, confidential records, or protected health information unless your organization has explicitly approved the complete data flow.",
-    "Queries and extracted paper text may be sent to Google Gemini when normalization or AI extraction is used. Review your organization’s data-processing rules.",
+    "Queries and extracted paper text may be sent to OpenAI when normalization or AI extraction is used. Review your organization’s data-processing rules.",
     "The service has no login, role controls, persistent audit log, or encryption configuration. Keep the default loopback host for personal/local use.",
     "Review source articles before using extracted outcomes, countries, codes, study designs, or methods.",
     "Respect NCBI usage rules and provide a real NCBI contact email. Use an NCBI API key for sustained higher-volume use.",
@@ -542,7 +542,7 @@ doc.add_heading("Appendix B: Administrator checklist", level=1)
 doc.add_heading("Before first use", level=2)
 for text in [
     "Create and activate .venv.", "Install requirements.txt.", "Create .env from .env.example.",
-    "Set a real NCBI_EMAIL.", "Set GEMINI_API_KEY.", "Optionally set NCBI_API_KEY.",
+    "Set a real NCBI_EMAIL.", "Set OPENAI_API_KEY.", "Optionally set NCBI_API_KEY.",
     "Keep AI_EXTRACT_HOST=127.0.0.1 unless network deployment is secured.",
     "Run the test suite.", "Start main.py and verify /api/health.", "Perform a 5-paper baseline test with advanced extraction off.",
     "Confirm full text, supplementary status, and relevance while SLR/later fields are blank, then perform a 1-paper advanced extraction test.",
@@ -563,6 +563,6 @@ add_callout(doc, "Ready for users", "The service is online, a normalized query c
 doc.core_properties.title = "AI Extract Complete User Manual and Project Documentation"
 doc.core_properties.subject = "User guide, installation guide, administrator reference, and technical overview"
 doc.core_properties.author = "AI Extract Project"
-doc.core_properties.keywords = "AI Extract, PubMed, PMC, Gemini, user manual, biomedical evidence"
+doc.core_properties.keywords = "AI Extract, PubMed, PMC, OpenAI GPT, user manual, health research evidence"
 doc.save(OUT)
 print(OUT)

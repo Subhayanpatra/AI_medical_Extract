@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from .gemini_client import generate_json
+from .openai_client import generate_json
 
 
 SLR_PROMPT = """

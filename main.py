@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from agents.paper_agent import process_paper
 from agents.query_normalization_agent import normalize_query
+from agents.sap_agent import sap_agent
 from pubmed.pmc_filter import get_required_pmc_papers
 from pubmed.query_builder import build_query
 
@@ -57,6 +58,7 @@ class SearchRequest(BaseModel):
     run_agents: bool = False
     max_agent_papers: int = Field(default=5)
     slr_handling: Literal["include", "exclude"] = "include"
+    generate_sap: bool = False
 
     @model_validator(mode="after")
     def validate_years(self) -> "SearchRequest":
@@ -211,9 +213,8 @@ def _run_search_job(job_id: str, request: SearchRequest) -> None:
 
         if candidates:
             for index, paper in enumerate(candidates):
-                run_extended_agents = (
-                    request.run_agents
-                    and len(papers) < request.max_agent_papers
+                run_extended_agents = request.generate_sap or (
+                    request.run_agents and len(papers) < request.max_agent_papers
                 )
                 progress = 25 + round((index / max(1, len(candidates))) * 65)
                 processing_label = (
@@ -256,6 +257,25 @@ def _run_search_job(job_id: str, request: SearchRequest) -> None:
                     break
 
         safe_papers = [_json_safe(paper) for paper in papers]
+        sap = None
+        if request.generate_sap:
+            _update_job(
+                job_id,
+                stage="generating_sap",
+                progress=95,
+                message=(
+                    f"Combining extracted information from {len(safe_papers)} "
+                    "relevant papers into one draft SAP."
+                ),
+            )
+            sap = _json_safe(
+                sap_agent(
+                    normalized_query,
+                    safe_papers,
+                    requested=request.paper_count,
+                    returned=len(safe_papers),
+                )
+            )
         result = {
             "normalization": _json_safe(normalization),
             "pubmed_query": pubmed_query,
@@ -265,6 +285,8 @@ def _run_search_job(job_id: str, request: SearchRequest) -> None:
             "not_relevant": not_relevant_count,
             "excluded_slr": excluded_slr_count,
             "papers": safe_papers,
+            "sap_requested": request.generate_sap,
+            "sap": sap,
             "metrics": {
                 "total_papers": len(safe_papers),
                 "pmc_articles": sum(bool(paper.get("PMCID")) for paper in safe_papers),
@@ -372,6 +394,24 @@ def download_results(job_id: str) -> StreamingResponse:
         io.BytesIO(content),
         media_type="text/csv; charset=utf-8",
         headers=headers,
+    )
+
+
+@app.get("/api/jobs/{job_id}/sap/download")
+def download_sap(job_id: str) -> StreamingResponse:
+    job = _job_snapshot(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Search job was not found.")
+    if job.get("status") != "complete" or not job.get("result"):
+        raise HTTPException(status_code=409, detail="Search results are not ready.")
+    sap = job["result"].get("sap")
+    if not sap:
+        raise HTTPException(status_code=404, detail="A SAP was not requested for this search.")
+    content = json.dumps(sap, ensure_ascii=False, indent=2).encode("utf-8")
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="application/json; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="statistical_analysis_plan.json"'},
     )
 
 

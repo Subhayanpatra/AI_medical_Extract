@@ -14,9 +14,12 @@ def main() -> None:
         for cell in notebook.get("cells", [])
     )
     ncbi_match = re.search(r"Entrez\.api_key\s*=\s*[\"']([^\"']+)[\"']", source)
-    gemini_match = re.search(r"genai\.configure\(\s*api_key\s*=\s*[\"']([^\"']+)[\"']", source)
+    openai_match = re.search(
+        r"(?:OPENAI_API_KEY\s*=|OpenAI\(\s*api_key\s*=)\s*[\"']([^\"']+)[\"']",
+        source,
+    )
 
-    if not ncbi_match and not gemini_match:
+    if not ncbi_match and not openai_match:
         print("No API keys found")
         return
 
@@ -25,12 +28,12 @@ def main() -> None:
     lines = [
         line
         for line in current.splitlines()
-        if not line.startswith("NCBI_API_KEY=") and not line.startswith("GEMINI_API_KEY=")
+        if not line.startswith("NCBI_API_KEY=") and not line.startswith("OPENAI_API_KEY=")
     ]
     if ncbi_match:
         lines.append(f"NCBI_API_KEY={ncbi_match.group(1)}")
-    if gemini_match:
-        lines.append(f"GEMINI_API_KEY={gemini_match.group(1)}")
+    if openai_match:
+        lines.append(f"OPENAI_API_KEY={openai_match.group(1)}")
     SECRETS.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("Environment file written")
 

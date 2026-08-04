@@ -1,8 +1,8 @@
 # AI Extract
 
 AI Extract is a local web application for searching PubMed, retrieving PMC
-full text and supplementary materials, and extracting structured biomedical
-evidence with Gemini.
+full text and supplementary materials, and extracting structured evidence from
+medical, clinical, healthcare, and life-sciences research literature with OpenAI GPT.
 
 The frontend uses standard HTML, CSS, and JavaScript. FastAPI serves the
 frontend and runs searches as background jobs so long literature and AI
@@ -30,6 +30,9 @@ or exclude papers classified as systematic literature reviews.
   analysis-method, outcome, and country extraction;
 - supplementary PDF, Word, Excel, PowerPoint, archive, text, and video files;
 - live progress, paper detail views, result metrics, and CSV download; and
+- optional one-document, evidence-informed Statistical Analysis Plan (SAP)
+  synthesized from every successfully extracted relevant paper, with a JSON
+  download and explicit requested, returned, and contributing-paper counts;
 - versioned supplementary checkpoints under
   `data/supplementary_materials/<PMCID>/`.
 
@@ -40,7 +43,7 @@ Copy `.env.example` to `.env` and provide:
 ```dotenv
 NCBI_EMAIL=your_email@example.com
 NCBI_API_KEY=
-GEMINI_API_KEY=
+OPENAI_API_KEY=
 ```
 
 Existing `.streamlit/secrets.toml` values remain readable temporarily for
